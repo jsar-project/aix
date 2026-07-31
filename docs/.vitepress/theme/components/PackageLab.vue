@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import type { AIX as AixClass, AixEntry } from "@yodaos-pkg/aix";
+import type { AIX as AixClass, AixEntry, AixInputFile, OptimizeReport } from "@yodaos-pkg/aix";
 
 interface LabPageInfo {
   name: string;
@@ -25,6 +25,7 @@ interface LabTool {
 }
 
 type SecondaryTab = "meta" | "pages" | "tools";
+type LabMode = "inspect" | "build";
 
 function formatBytes(value: number): string {
   if (value < 1024) {
@@ -49,6 +50,14 @@ const selectedFile = ref<string | null>(null);
 const fileContent = ref<string | null>(null);
 const aixInstance = ref<AixClass | null>(null);
 const currentTab = ref<SecondaryTab>("meta");
+const mode = ref<LabMode>("inspect");
+const directoryFiles = ref<File[]>([]);
+const directoryName = ref("");
+const building = ref(false);
+const buildError = ref<string | null>(null);
+const buildReport = ref<OptimizeReport | null>(null);
+const optimizeBuild = ref(true);
+const optimizeLevel = ref<1 | 2 | 3>(2);
 
 const TEXT_FILE_PATTERN =
   /\.(md|txt|json|js|ts|jsx|tsx|css|html|xml|yaml|yml|toml|ini|cfg|ink|wxml|wxss|wcss|svg)$/i;
@@ -69,6 +78,8 @@ const metadataRows = computed(() => [
   { label: "Pages", value: String(pages.value.length) },
   { label: "Tools", value: String(tools.value.length) }
 ]);
+const directorySize = computed(() => directoryFiles.value.reduce((total, file) => total + file.size, 0));
+const hasDirectory = computed(() => directoryFiles.value.length > 0);
 
 function resetState() {
   error.value = null;
@@ -150,6 +161,75 @@ async function handleFileUpload(event: Event) {
   }
 }
 
+function handleDirectorySelection(event: Event) {
+  const input = event.target as HTMLInputElement | null;
+  const files = Array.from(input?.files ?? []);
+
+  buildError.value = null;
+  buildReport.value = null;
+  directoryFiles.value = files;
+  directoryName.value = files[0]?.webkitRelativePath.split("/")[0] || "package";
+}
+
+function packagePath(file: File): string {
+  const sourcePath = file.webkitRelativePath || file.name;
+  const parts = sourcePath.split("/").filter(Boolean);
+  return parts.length > 1 ? parts.slice(1).join("/") : sourcePath;
+}
+
+function downloadPackage(data: Uint8Array, fileName: string) {
+  const bytes = new Uint8Array(data);
+  const blob = new Blob([bytes.buffer], { type: "application/zip" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function buildAndDownload() {
+  if (!hasDirectory.value || building.value) {
+    return;
+  }
+
+  building.value = true;
+  buildError.value = null;
+  buildReport.value = null;
+
+  try {
+    const { AIX } = await loadAixModule();
+    const files = await Promise.all(
+      directoryFiles.value
+        .filter((file) => packagePath(file) !== "VERSION")
+        .map(async (file): Promise<AixInputFile> => ({
+          path: packagePath(file),
+          data: new Uint8Array(await file.arrayBuffer())
+        }))
+    );
+    const result = await AIX.pack(files, {
+      optimize: optimizeBuild.value
+        ? {
+            level: optimizeLevel.value,
+            json: true,
+            png: true,
+            jpeg: true
+          }
+        : false
+    });
+    const safeName = directoryName.value.replace(/[^a-zA-Z0-9._-]+/g, "-") || "bundle";
+    downloadPackage(result.data, `${safeName}.aix`);
+    buildReport.value = result.report;
+  } catch (err) {
+    console.error("Error building AIX:", err);
+    buildError.value = err instanceof Error ? err.message : String(err);
+  } finally {
+    building.value = false;
+  }
+}
+
 function viewFile(fileName: string) {
   if (!aixInstance.value) {
     return;
@@ -183,10 +263,19 @@ function formatTool(tool: LabTool): string {
     <section class="lab-topbar">
       <div class="lab-topbar-copy">
         <strong class="lab-topbar-title">Play</strong>
-        <span class="lab-topbar-hint">Upload an `.aix` package to inspect its contents.</span>
+        <span class="lab-topbar-hint">Inspect and build AIX packages in the browser.</span>
       </div>
 
-      <label class="lab-upload-button" for="file-input">
+      <div class="lab-mode-switch" role="tablist" aria-label="Play mode">
+        <button type="button" :class="{ 'is-active': mode === 'inspect' }" @click="mode = 'inspect'">
+          Inspect
+        </button>
+        <button type="button" :class="{ 'is-active': mode === 'build' }" @click="mode = 'build'">
+          Build
+        </button>
+      </div>
+
+      <label v-if="mode === 'inspect'" class="lab-upload-button" for="file-input">
         <input
           id="file-input"
           type="file"
@@ -196,8 +285,74 @@ function formatTool(tool: LabTool): string {
         />
         <span>{{ loading ? "Reading package..." : hasPackage ? "Replace package" : "Upload package" }}</span>
       </label>
+
+      <label v-else class="lab-upload-button" for="directory-input">
+        <input
+          id="directory-input"
+          type="file"
+          webkitdirectory
+          multiple
+          class="lab-hidden-input"
+          @change="handleDirectorySelection"
+        />
+        <span>{{ hasDirectory ? "Replace directory" : "Choose directory" }}</span>
+      </label>
     </section>
 
+    <template v-if="mode === 'build'">
+      <div v-if="buildError" class="lab-error"><strong>Error:</strong> {{ buildError }}</div>
+
+      <section v-if="!hasDirectory" class="lab-empty-stage">
+        <div class="lab-empty-stage-card">
+          <strong>No directory selected</strong>
+        </div>
+      </section>
+
+      <section v-else class="lab-builder-panel">
+        <div class="lab-builder-summary">
+          <div>
+            <span>Directory</span>
+            <strong>{{ directoryName }}</strong>
+          </div>
+          <div>
+            <span>Files</span>
+            <strong>{{ directoryFiles.length }}</strong>
+          </div>
+          <div>
+            <span>Source size</span>
+            <strong>{{ formatBytes(directorySize) }}</strong>
+          </div>
+        </div>
+
+        <div class="lab-builder-controls">
+          <label class="lab-check-control">
+            <input v-model="optimizeBuild" type="checkbox" />
+            <span>Optimize resources</span>
+          </label>
+
+          <label class="lab-level-control">
+            <span>Level</span>
+            <select v-model="optimizeLevel" :disabled="!optimizeBuild">
+              <option :value="1">1</option>
+              <option :value="2">2</option>
+              <option :value="3">3</option>
+            </select>
+          </label>
+
+          <button class="lab-build-button" type="button" :disabled="building" @click="buildAndDownload">
+            {{ building ? "Building package..." : "Build and download" }}
+          </button>
+        </div>
+
+        <div v-if="buildReport" class="lab-build-result" role="status">
+          <strong>Package downloaded</strong>
+          <span>{{ formatBytes(buildReport.output_size) }}</span>
+          <span>{{ formatBytes(buildReport.saved_bytes) }} saved</span>
+        </div>
+      </section>
+    </template>
+
+    <template v-else>
     <div v-if="error" class="lab-error"><strong>Error:</strong> {{ error }}</div>
 
     <section v-if="!hasPackage" class="lab-empty-stage">
@@ -324,6 +479,7 @@ function formatTool(tool: LabTool): string {
           </div>
         </div>
       </section>
+    </template>
     </template>
   </div>
 </template>

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/aix",
+    "crates/aix-pack",
     "crates/aix-cli",
     "crates/aix-web",
 ]

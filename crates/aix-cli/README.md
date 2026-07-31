@@ -65,6 +65,15 @@ aix list <AIX_FILE>
 aix ls <AIX_FILE>
 ```
 
+### 3. Optimize
+
+Optimizes JSON, PNG, and JPEG entries in an existing package using the same
+cross-platform engine as the Web/WASM package.
+
+```bash
+aix optimize input.aix -o output.aix --level 2
+```
+
 ## Development & Debugging
 
 If you are at the project root, you can run the CLI directly using:

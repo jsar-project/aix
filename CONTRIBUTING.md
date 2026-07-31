@@ -2,9 +2,10 @@
 
 Thanks for contributing to AIX.
 
-AIX is an executable package format for AI agents. This repository is a Rust workspace with three package-facing surfaces:
+AIX is an executable package format for AI agents. This repository is a Rust workspace with four package-facing surfaces:
 
 - `crates/aix`: core Rust library
+- `crates/aix-pack`: in-memory Native/WASM packer and optimizer
 - `crates/aix-cli`: command-line interface
 - `crates/aix-web`: WASM and TypeScript package
 - `docs`: the VitePress documentation site
@@ -35,6 +36,7 @@ npm --version
 .
 ├── crates/
 │   ├── aix/
+│   ├── aix-pack/
 │   ├── aix-cli/
 │   └── aix-web/
 ├── docs/
@@ -46,6 +48,7 @@ npm --version
 The workspace is intentionally split by surface area:
 
 - `aix` owns the package model and analysis logic
+- `aix-pack` owns in-memory packaging, normalization, and resource optimization
 - `aix-cli` turns the format into terminal workflows
 - `aix-web` exposes the same capabilities through WASM and TypeScript
 - `docs` is the official site for `Specification`, `Packages`, and `Play`
@@ -57,7 +60,7 @@ The workspace is intentionally split by surface area:
 From the repository root:
 
 ```bash
-cargo test -p aiui-aix -p aiui-aix-cli
+cargo test -p aiui-aix -p aiui-aix-pack -p aiui-aix-cli
 cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 ```
 

@@ -1,3 +1,8 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
+use alloc::{format, string::String, string::ToString, vec::Vec};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "wasm")]
@@ -15,8 +20,7 @@ fn aix_warn(msg: &str) {
     console_warn(msg);
     log::warn!("{}", msg);
 }
-use std::io::{Cursor, Read};
-use zip::ZipArchive;
+use rawzip::{CompressionMethod, ZipArchive};
 
 pub mod analyzer;
 pub mod xml;
@@ -94,19 +98,26 @@ pub struct AixReader {
 impl AixReader {
     pub fn new(data: Vec<u8>) -> Result<Self> {
         let mut entries = Vec::new();
-
-        let cursor = Cursor::new(data.as_slice());
-        let mut archive =
-            ZipArchive::new(cursor).map_err(|e| anyhow!("Failed to read zip: {:?}", e))?;
-
-        for i in 0..archive.len() {
-            let file = archive
-                .by_index(i)
-                .map_err(|e| anyhow!("Failed to read file index {}: {:?}", i, e))?;
+        let archive = ZipArchive::from_slice(data.as_slice())
+            .map_err(|error| anyhow!("Failed to read zip: {:?}", error))?;
+        let mut zip_entries = archive.entries();
+        while let Some(file) = zip_entries
+            .next_entry()
+            .map_err(|error| anyhow!("Failed to read zip entry: {:?}", error))?
+        {
+            let name = file
+                .file_path()
+                .try_normalize()
+                .map_err(|error| anyhow!("Invalid zip path: {:?}", error))?
+                .as_ref()
+                .to_string();
+            if entries.iter().any(|entry: &AixEntry| entry.name == name) {
+                return Err(anyhow!("Duplicate zip entry: {}", name));
+            }
             entries.push(AixEntry {
-                name: file.name().to_string(),
-                size: file.size(),
-                compressed_size: file.compressed_size(),
+                name,
+                size: file.uncompressed_size_hint(),
+                compressed_size: file.compressed_size_hint(),
             });
         }
 
@@ -118,18 +129,46 @@ impl AixReader {
     }
 
     pub fn read_file(&self, name: &str) -> Result<Vec<u8>> {
-        let cursor = Cursor::new(self.data.as_slice());
-        let mut archive =
-            ZipArchive::new(cursor).map_err(|e| anyhow!("Failed to read zip: {:?}", e))?;
+        let archive = ZipArchive::from_slice(self.data.as_slice())
+            .map_err(|error| anyhow!("Failed to read zip: {:?}", error))?;
+        let mut entries = archive.entries();
+        while let Some(entry) = entries
+            .next_entry()
+            .map_err(|error| anyhow!("Failed to read zip entry: {:?}", error))?
+        {
+            let path = entry
+                .file_path()
+                .try_normalize()
+                .map_err(|error| anyhow!("Invalid zip path: {:?}", error))?;
+            if path.as_ref() != name {
+                continue;
+            }
 
-        let mut file = archive
-            .by_name(name)
-            .map_err(|e| anyhow!("File not found: {}: {:?}", name, e))?;
-
-        let mut buffer = Vec::with_capacity(file.size() as usize);
-        file.read_to_end(&mut buffer)
-            .map_err(|e| anyhow!("Failed to extract: {:?}", e))?;
-        Ok(buffer)
+            let method = entry.compression_method();
+            let local = archive
+                .get_entry(entry.wayfinder())
+                .map_err(|error| anyhow!("Failed to locate {}: {:?}", name, error))?;
+            let claimed = local.claim_verifier();
+            let limit = usize::try_from(claimed.uncompressed_size)
+                .map_err(|_| anyhow!("File too large: {}", name))?;
+            let output = match method {
+                CompressionMethod::STORE => local.data().to_vec(),
+                CompressionMethod::DEFLATE => {
+                    miniz_oxide::inflate::decompress_to_vec_with_limit(local.data(), limit)
+                        .map_err(|error| anyhow!("Failed to extract {}: {}", name, error))?
+                }
+                _ => return Err(anyhow!("Unsupported compression for {}: {}", name, method)),
+            };
+            let actual = rawzip::ZipVerification {
+                crc: rawzip::crc32(&output),
+                uncompressed_size: output.len() as u64,
+            };
+            claimed
+                .valid(actual)
+                .map_err(|error| anyhow!("Failed to verify {}: {:?}", name, error))?;
+            return Ok(output);
+        }
+        Err(anyhow!("File not found: {}", name))
     }
 
     pub fn get_version(&self) -> Option<String> {
@@ -346,7 +385,7 @@ pub fn format_size(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use std::io::{Cursor, Write};
     use zip::write::FileOptions;
 
     fn create_test_aix() -> Vec<u8> {
@@ -391,6 +430,22 @@ mod tests {
             zip.finish().unwrap();
         }
         buf
+    }
+
+    #[test]
+    fn reads_deflated_entries() {
+        let mut data = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(Cursor::new(&mut data));
+            let options =
+                FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+            zip.start_file("app.json", options).unwrap();
+            zip.write_all(br#"{"pages":[]}"#).unwrap();
+            zip.finish().unwrap();
+        }
+
+        let reader = AixReader::new(data).unwrap();
+        assert_eq!(reader.read_file("app.json").unwrap(), br#"{"pages":[]}"#);
     }
 
     #[test]

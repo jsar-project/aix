@@ -1,5 +1,7 @@
-use quick_xml::events::Event;
-use quick_xml::reader::Reader;
+use alloc::{format, string::String, string::ToString, vec, vec::Vec};
+#[cfg(not(feature = "std"))]
+use hashbrown::HashMap;
+#[cfg(feature = "std")]
 use std::collections::HashMap;
 
 /// A lightweight XML/SFC AST node used internally by `aix`.
@@ -44,117 +46,56 @@ pub enum Node {
 /// - `Err(String)`: A parse error message containing the approximate position and
 ///   the underlying parser error.
 pub fn parse_xml(content: &str) -> Result<Vec<Node>, String> {
-    let mut reader = Reader::from_str(content);
-    reader.config_mut().trim_text(true);
-    // Allow unmatched ends in case HTML is slightly malformed or valueless attributes.
-    reader.config_mut().allow_unmatched_ends = true;
-
     let mut stack: Vec<Node> = vec![Node::Element {
         name: "root".to_string(),
         attributes: HashMap::new(),
         children: Vec::new(),
     }];
-
-    let mut buf = Vec::new();
-
-    loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                let mut attributes = HashMap::new();
-
-                for a in e.html_attributes().flatten() {
-                    let key = String::from_utf8_lossy(a.key.as_ref()).to_string();
-                    let value = String::from_utf8_lossy(&a.value).to_string();
-                    attributes.insert(key, value);
-                }
-
-                stack.push(Node::Element {
-                    name,
-                    attributes,
-                    children: Vec::new(),
-                });
+    let mut cursor = 0;
+    while let Some(relative_start) = content[cursor..].find('<') {
+        let start = cursor + relative_start;
+        let text = &content[cursor..start];
+        if !text.trim().is_empty() {
+            if let Some(Node::Element { children, .. }) = stack.last_mut() {
+                children.push(Node::Text(text.to_string()));
             }
-            Ok(Event::Empty(e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                let mut attributes = HashMap::new();
-
-                for a in e.html_attributes().flatten() {
-                    let key = String::from_utf8_lossy(a.key.as_ref()).to_string();
-                    let value = String::from_utf8_lossy(&a.value).to_string();
-                    attributes.insert(key, value);
-                }
-
-                let node = Node::Element {
-                    name,
-                    attributes,
-                    children: Vec::new(),
-                };
-
-                if let Some(Node::Element { children, .. }) = stack.last_mut() {
-                    children.push(node);
-                }
-            }
-            Ok(Event::End(e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                if stack.len() > 1 {
-                    let mut found = false;
-                    if let Some(Node::Element {
-                        name: node_name, ..
-                    }) = stack.last()
-                    {
-                        if node_name == &name {
-                            found = true;
-                        }
-                    }
-
-                    if found {
-                        let node = stack.pop().unwrap();
-                        if let Some(Node::Element { children, .. }) = stack.last_mut() {
-                            children.push(node);
-                        }
-                    } else {
-                        let mut pop_count = 0;
-                        for i in (1..stack.len()).rev() {
-                            if let Node::Element { name: n, .. } = &stack[i] {
-                                if n == &name {
-                                    pop_count = stack.len() - i;
-                                    break;
-                                }
-                            }
-                        }
-                        if pop_count > 0 {
-                            let mut popped = Vec::new();
-                            for _ in 0..pop_count {
-                                popped.push(stack.pop().unwrap());
-                            }
-                            let node = popped.pop().unwrap();
-                            if let Node::Element { children, .. } = stack.last_mut().unwrap() {
-                                children.push(node);
-                            }
-                        }
-                    }
-                }
-            }
-            Ok(Event::Text(e)) => {
-                let text = String::from_utf8_lossy(e.as_ref()).to_string();
-                if !text.trim().is_empty() {
-                    if let Some(Node::Element { children, .. }) = stack.last_mut() {
-                        children.push(Node::Text(text));
-                    }
-                }
-            }
-            Ok(Event::Eof) => break,
-            Err(e) => {
-                return Err(format!(
-                    "Error at position {}: {:?}",
-                    reader.buffer_position(),
-                    e
-                ));
-            }
-            _ => (),
         }
-        buf.clear();
+        let Some(relative_end) = content[start + 1..].find('>') else {
+            return Err(format!("Unclosed tag at position {}", start));
+        };
+        let end = start + 1 + relative_end;
+        let raw = content[start + 1..end].trim();
+        cursor = end + 1;
+
+        if raw.starts_with('!') || raw.starts_with('?') {
+            continue;
+        }
+        if let Some(close_name) = raw.strip_prefix('/') {
+            close_element(&mut stack, close_name.trim());
+            continue;
+        }
+
+        let empty = raw.ends_with('/');
+        let raw = raw.strip_suffix('/').unwrap_or(raw).trim_end();
+        let (name, attributes) = parse_start_tag(raw)?;
+        let node = Node::Element {
+            name,
+            attributes,
+            children: Vec::new(),
+        };
+        if empty {
+            if let Some(Node::Element { children, .. }) = stack.last_mut() {
+                children.push(node);
+            }
+        } else {
+            stack.push(node);
+        }
+    }
+    let tail = &content[cursor..];
+    if !tail.trim().is_empty() {
+        if let Some(Node::Element { children, .. }) = stack.last_mut() {
+            children.push(Node::Text(tail.to_string()));
+        }
     }
 
     while stack.len() > 1 {
@@ -169,6 +110,78 @@ pub fn parse_xml(content: &str) -> Result<Vec<Node>, String> {
     } else {
         Ok(Vec::new())
     }
+}
+
+fn close_element(stack: &mut Vec<Node>, name: &str) {
+    let Some(index) = (1..stack.len())
+        .rev()
+        .find(|&index| matches!(&stack[index], Node::Element { name: open, .. } if open == name))
+    else {
+        return;
+    };
+    while stack.len() > index + 1 {
+        let child = stack.pop().unwrap();
+        if let Some(Node::Element { children, .. }) = stack.last_mut() {
+            children.push(child);
+        }
+    }
+    let node = stack.pop().unwrap();
+    if let Some(Node::Element { children, .. }) = stack.last_mut() {
+        children.push(node);
+    }
+}
+
+fn parse_start_tag(raw: &str) -> Result<(String, HashMap<String, String>), String> {
+    let name_end = raw.find(char::is_whitespace).unwrap_or(raw.len());
+    let name = raw[..name_end].trim();
+    if name.is_empty() {
+        return Err("Empty tag name".to_string());
+    }
+    let mut attributes = HashMap::new();
+    let bytes = raw.as_bytes();
+    let mut cursor = name_end;
+    while cursor < bytes.len() {
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        if cursor == bytes.len() {
+            break;
+        }
+        let key_start = cursor;
+        while cursor < bytes.len() && !bytes[cursor].is_ascii_whitespace() && bytes[cursor] != b'='
+        {
+            cursor += 1;
+        }
+        let key = &raw[key_start..cursor];
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        let mut value = String::new();
+        if cursor < bytes.len() && bytes[cursor] == b'=' {
+            cursor += 1;
+            while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                cursor += 1;
+            }
+            if cursor < bytes.len() && (bytes[cursor] == b'\'' || bytes[cursor] == b'"') {
+                let quote = bytes[cursor];
+                cursor += 1;
+                let value_start = cursor;
+                while cursor < bytes.len() && bytes[cursor] != quote {
+                    cursor += 1;
+                }
+                value = raw[value_start..cursor].to_string();
+                cursor += usize::from(cursor < bytes.len());
+            } else {
+                let value_start = cursor;
+                while cursor < bytes.len() && !bytes[cursor].is_ascii_whitespace() {
+                    cursor += 1;
+                }
+                value = raw[value_start..cursor].to_string();
+            }
+        }
+        attributes.insert(key.to_string(), value);
+    }
+    Ok((name.to_string(), attributes))
 }
 
 /// Parses `.ink` single-file component text and extracts top-level structure blocks.

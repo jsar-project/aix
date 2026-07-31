@@ -1,4 +1,37 @@
-import init, { AixReaderWasm } from '../dist/pkg/aix_web';
+import init, { AixReaderWasm, optimize_aix, pack_aix } from '../dist/pkg/aix_web.js';
+
+export interface AixInputFile {
+  path: string;
+  data: Uint8Array;
+}
+
+export interface OptimizeOptions {
+  level?: 1 | 2 | 3;
+  json?: boolean;
+  png?: boolean;
+  jpeg?: boolean;
+}
+
+export interface FileOptimizeReport {
+  path: string;
+  status: 'optimized' | 'unchanged' | 'skipped';
+  original_size: number;
+  output_size: number;
+  saved_bytes: number;
+  converted_to_utf8: boolean;
+}
+
+export interface OptimizeReport {
+  files: FileOptimizeReport[];
+  original_size: number;
+  output_size: number;
+  saved_bytes: number;
+}
+
+export interface PackResult {
+  data: Uint8Array;
+  report: OptimizeReport;
+}
 
 export interface AixEntry {
   name: string;
@@ -43,6 +76,29 @@ export class AIX {
     }
     const reader = new AixReaderWasm(buffer);
     return new AIX(reader);
+  }
+
+  static async pack(
+    files: AixInputFile[],
+    options?: { buildId?: string; optimize?: false | OptimizeOptions },
+  ): Promise<PackResult> {
+    await init();
+    const buildId = options?.buildId ?? crypto.randomUUID();
+    const optimize = options?.optimize === false ? undefined : options?.optimize;
+    const result = pack_aix(files, buildId, optimize);
+    return { data: result.data, report: result.report as OptimizeReport };
+  }
+
+  static async optimize(
+    data: Uint8Array | File,
+    options?: OptimizeOptions,
+  ): Promise<PackResult> {
+    await init();
+    const buffer = data instanceof Uint8Array
+      ? data
+      : new Uint8Array(await data.arrayBuffer());
+    const result = optimize_aix(buffer, options);
+    return { data: result.data, report: result.report as OptimizeReport };
   }
 
   /**

@@ -1,4 +1,5 @@
 use aix::AixReader;
+use aix_pack::{InputFile, OptimizeOptions, PackOptions};
 use anyhow::Result;
 use wasm_bindgen::prelude::*;
 
@@ -11,6 +12,65 @@ fn to_value<T: serde::Serialize + ?Sized>(value: &T) -> Result<JsValue, JsValue>
 #[wasm_bindgen]
 pub struct AixReaderWasm {
     inner: AixReader,
+}
+
+#[wasm_bindgen]
+pub struct AixPackResultWasm {
+    data: Vec<u8>,
+    report: aix_pack::OptimizeReport,
+}
+
+#[wasm_bindgen]
+impl AixPackResultWasm {
+    #[wasm_bindgen(getter)]
+    pub fn data(&self) -> Vec<u8> {
+        self.data.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn report(&self) -> Result<JsValue, JsValue> {
+        to_value(&self.report)
+    }
+}
+
+#[wasm_bindgen]
+pub fn pack_aix(
+    files: JsValue,
+    build_id: String,
+    optimize_options: JsValue,
+) -> Result<AixPackResultWasm, JsValue> {
+    let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let optimize = if optimize_options.is_null() || optimize_options.is_undefined() {
+        None
+    } else {
+        Some(
+            serde_wasm_bindgen::from_value(optimize_options)
+                .map_err(|error| JsValue::from_str(&error.to_string()))?,
+        )
+    };
+    let output = aix_pack::pack(files, PackOptions { build_id, optimize })
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    Ok(AixPackResultWasm {
+        data: output.data,
+        report: output.report,
+    })
+}
+
+#[wasm_bindgen]
+pub fn optimize_aix(data: Vec<u8>, options: JsValue) -> Result<AixPackResultWasm, JsValue> {
+    let options: OptimizeOptions = if options.is_null() || options.is_undefined() {
+        OptimizeOptions::default()
+    } else {
+        serde_wasm_bindgen::from_value(options)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?
+    };
+    let output = aix_pack::optimize_package(&data, &options)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    Ok(AixPackResultWasm {
+        data: output.data,
+        report: output.report,
+    })
 }
 
 #[wasm_bindgen]

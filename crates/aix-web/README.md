@@ -76,6 +76,22 @@ http://localhost:5173/aix/play
 
 This is useful for verifying whether `app.json`, page schemas, and `getTools()` output match expectations while developing or debugging an AIX package inside the official docs experience.
 
+### Pack and Optimize
+
+The Web package includes the same in-memory packer and pure Rust resource
+optimizer as the native CLI:
+
+```ts
+const packed = await AIX.pack(
+  [{ path: "app.json", data: new TextEncoder().encode('{"pages":[]}') }],
+  { optimize: { level: 2 } },
+);
+
+const optimized = await AIX.optimize(packed.data, { level: 3 });
+```
+
+Both methods return the generated `Uint8Array` and a structured per-file report.
+
 ## API Reference
 
 ### `AIX` Class

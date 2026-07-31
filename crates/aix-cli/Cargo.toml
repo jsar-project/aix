@@ -17,17 +17,11 @@ path = "src/main.rs"
 
 [dependencies]
 aix = { package = "aiui-aix", path = "../aix", version = "0.7.0" }
+aix-pack = { package = "aiui-aix-pack", path = "../aix-pack", version = "0.7.0" }
 clap = { version = "4.5", features = ["derive"] }
-zip = "0.6"
 ignore = "0.4"
 uuid = { version = "1.0", features = ["v4"] }
 anyhow = { workspace = true }
-oxipng = "10.1"
-mozjpeg = "0.10"
-image = "0.25"
-serde_json = { workspace = true }
-chardetng = "0.1"
-encoding_rs = "0.8"
 
 [dev-dependencies]
 tempfile = "3.10"

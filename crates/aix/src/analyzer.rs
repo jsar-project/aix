@@ -1,5 +1,9 @@
 use crate::xml::{self, Node};
+use alloc::{format, string::String, string::ToString, vec::Vec};
+#[cfg(not(feature = "std"))]
+use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "std")]
 use std::collections::HashMap;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]

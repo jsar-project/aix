@@ -6,9 +6,10 @@ AIX 是一种面向 AI agents 的可执行包格式。
 
 ## 仓库包含什么
 
-这个仓库是一个 Rust workspace，包含三层面向格式本身的实现：
+这个仓库是一个 Rust workspace，包含四层面向格式本身的实现：
 
-- `crates/aix`：AIX 的核心定义、包读取、页面分析和 tool 推导
+- `crates/aix`：支持 `no_std + alloc` 的包读取、页面分析和 tool 推导核心
+- `crates/aix-pack`：面向 Native 和 Web/WASM 的纯内存打包与资源优化能力
 - `crates/aix-cli`：用于打包、校验和检查 `.aix` artifact 的命令行入口
 - `crates/aix-web`：面向浏览器的 WASM 和 TypeScript 接口
 - `docs`：官方文档站，包含 `Specification`、`Packages` 和 `Play`
@@ -19,6 +20,7 @@ AIX 是一种面向 AI agents 的可执行包格式。
 .
 ├── crates/
 │   ├── aix/
+│   ├── aix-pack/
 │   ├── aix-cli/
 │   └── aix-web/
 ├── docs/
@@ -51,12 +53,19 @@ AIX 是一种面向 AI agents 的可执行包格式。
 - 提取页面 schema
 - 基于包内容推导 tool 定义
 
+关闭默认 feature 后，核心包支持 `no_std + alloc`。
+
+### `crates/aix-pack`
+
+`aix-pack` 完全在内存中构建和优化 `.aix`，负责文本规范化、JSON 紧凑化以及使用纯 Rust 编解码器优化 PNG/JPEG，并由 CLI 和 Web/WASM 共同使用。
+
 ### `crates/aix-cli`
 
 CLI 把格式能力转成终端工作流，目前主要包括：
 
 - `aix pack <INPUT_DIR>`：构建 `.aix` artifact
 - `aix list <AIX_FILE>` 或 `aix ls <AIX_FILE>`：检查包内容
+- `aix optimize <AIX_FILE> -o <OUTPUT_FILE>`：优化已有 artifact
 - 打包阶段的校验与规范化处理
 - `.aixignore` 支持与可选优化流程
 
@@ -156,7 +165,7 @@ npm run dev
 在仓库根目录进行基础校验：
 
 ```bash
-cargo test -p aiui-aix -p aiui-aix-cli
+cargo test -p aiui-aix -p aiui-aix-pack -p aiui-aix-cli
 cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 ```
 

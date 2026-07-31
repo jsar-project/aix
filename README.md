@@ -6,9 +6,10 @@ It packages pages, schema, and tools into a distributable artifact that stays re
 
 ## What This Repository Contains
 
-This repository is a Rust workspace with three package-facing surfaces:
+This repository is a Rust workspace with four package-facing surfaces:
 
-- `crates/aix`: the core format definition, package reader, page analysis, and tool derivation layer
+- `crates/aix`: the `no_std + alloc` package reader, page analysis, and tool derivation layer
+- `crates/aix-pack`: the in-memory Native/WASM packaging and optimization layer
 - `crates/aix-cli`: the command-line surface for packaging, validating, and inspecting `.aix` artifacts
 - `crates/aix-web`: the WASM and TypeScript surface for browser-based AIX inspection and integration
 - `docs`: the official documentation site, including `Specification`, `Packages`, and `Play`
@@ -19,6 +20,7 @@ This repository is a Rust workspace with three package-facing surfaces:
 .
 ├── crates/
 │   ├── aix/
+│   ├── aix-pack/
 │   ├── aix-cli/
 │   └── aix-web/
 ├── docs/
@@ -51,12 +53,21 @@ The core crate defines the AIX reading model. It is responsible for:
 - extracting page schema
 - deriving tool definitions from package data
 
+The core supports `no_std + alloc` when default features are disabled.
+
+### `crates/aix-pack`
+
+The pack crate builds and optimizes `.aix` bytes entirely in memory. It owns
+text normalization, JSON compaction, and pure Rust PNG/JPEG optimization, and is
+shared by the CLI and Web/WASM package.
+
 ### `crates/aix-cli`
 
 The CLI turns the format into terminal workflows. It currently focuses on:
 
 - `aix pack <INPUT_DIR>` for building `.aix` artifacts
 - `aix list <AIX_FILE>` or `aix ls <AIX_FILE>` for inspecting package contents
+- `aix optimize <AIX_FILE> -o <OUTPUT_FILE>` for optimizing an existing artifact
 - validation and normalization during packaging
 - `.aixignore` support and optional optimization paths
 
@@ -156,7 +167,7 @@ npm run dev
 Validate the workspace from the repository root:
 
 ```bash
-cargo test -p aiui-aix -p aiui-aix-cli
+cargo test -p aiui-aix -p aiui-aix-pack -p aiui-aix-cli
 cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 ```
 

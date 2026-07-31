@@ -1426,6 +1426,44 @@ body {
   text-overflow: ellipsis;
 }
 
+.lab-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(76px, 1fr));
+  padding: 4px;
+  border: 1px solid rgba(23, 29, 40, 0.1);
+  border-radius: 12px;
+  background: rgba(23, 29, 40, 0.05);
+}
+
+.lab-mode-switch button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--aix-muted);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.lab-mode-switch button:hover {
+  color: var(--aix-ink);
+}
+
+.lab-mode-switch button:active {
+  transform: translateY(1px);
+}
+
+.lab-mode-switch button.is-active {
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--aix-ink);
+  box-shadow: 0 4px 12px rgba(31, 39, 53, 0.08);
+}
+
 .lab-upload-button {
   display: inline-flex;
   align-items: center;
@@ -1486,6 +1524,132 @@ body {
 
 .lab-empty-stage-card strong {
   font-size: 1.1rem;
+}
+
+.lab-builder-panel {
+  margin-top: 18px;
+  border: 1px solid rgba(23, 29, 40, 0.1);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: 0 16px 44px rgba(31, 39, 53, 0.07);
+  overflow: hidden;
+}
+
+.lab-builder-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(140px, 0.5fr));
+}
+
+.lab-builder-summary > div {
+  min-width: 0;
+  padding: 24px;
+}
+
+.lab-builder-summary > div + div {
+  border-left: 1px solid rgba(23, 29, 40, 0.1);
+}
+
+.lab-builder-summary span,
+.lab-level-control > span {
+  display: block;
+  color: var(--aix-muted);
+  font-size: 0.82rem;
+}
+
+.lab-builder-summary strong {
+  display: block;
+  margin-top: 8px;
+  overflow: hidden;
+  font-size: 1.3rem;
+  letter-spacing: -0.03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lab-builder-controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 120px auto;
+  align-items: end;
+  gap: 14px;
+  padding: 20px 24px 24px;
+  border-top: 1px solid rgba(23, 29, 40, 0.1);
+}
+
+.lab-check-control {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  gap: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lab-check-control input {
+  width: 18px;
+  height: 18px;
+  accent-color: #04773c;
+}
+
+.lab-level-control {
+  display: grid;
+  gap: 6px;
+}
+
+.lab-level-control select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid rgba(23, 29, 40, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--aix-ink);
+}
+
+.lab-level-control select:disabled {
+  opacity: 0.5;
+}
+
+.lab-build-button {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--aix-dark);
+  color: #f6f0e8;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.lab-build-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.lab-build-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.lab-build-button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.lab-build-result {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(7, 193, 96, 0.18);
+  background: rgba(7, 193, 96, 0.08);
+  color: #04773c;
+}
+
+.lab-build-result span {
+  color: var(--aix-muted);
 }
 
 .lab-empty-stage-card p,
@@ -1811,6 +1975,10 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .lab-builder-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .lab-stats,
   .lab-meta-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1874,7 +2042,40 @@ body {
   }
 
   .lab-topbar {
+    display: grid;
+    grid-template-columns: 1fr auto;
     padding: 14px 16px;
+  }
+
+  .lab-topbar-copy {
+    grid-column: 1 / -1;
+  }
+
+  .lab-topbar-hint {
+    white-space: normal;
+  }
+
+  .lab-builder-summary,
+  .lab-builder-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .lab-builder-summary > div {
+    padding: 18px 20px;
+  }
+
+  .lab-builder-summary > div + div {
+    border-top: 1px solid rgba(23, 29, 40, 0.1);
+    border-left: 0;
+  }
+
+  .lab-builder-controls {
+    align-items: stretch;
+    padding: 18px 20px 20px;
+  }
+
+  .lab-build-button {
+    width: 100%;
   }
 
   .lab-topbar-title {

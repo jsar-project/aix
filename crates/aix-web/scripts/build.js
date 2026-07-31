@@ -34,6 +34,13 @@ if (fs.existsSync(pkgGitignore)) {
   console.log('Removed dist/pkg/.gitignore');
 }
 
+const wasmPackagePath = path.join(distDir, 'pkg', 'package.json');
+if (fs.existsSync(wasmPackagePath)) {
+  const wasmPackage = JSON.parse(fs.readFileSync(wasmPackagePath, 'utf-8'));
+  wasmPackage.type = 'module';
+  fs.writeFileSync(wasmPackagePath, JSON.stringify(wasmPackage, null, 2));
+}
+
 // 4. Build TS (outputs to dist/)
 console.log('Building TS to dist/...');
 execSync('npm run build:ts', { cwd: rootDir, stdio: 'inherit' });
@@ -58,6 +65,7 @@ const publishPackageJson = {
   name: packageJson.name,
   version: version,
   description: packageJson.description || 'Ink AIX Web Library',
+  type: 'module',
   main: 'index.js',
   types: 'index.d.ts',
   files: ['*'],
