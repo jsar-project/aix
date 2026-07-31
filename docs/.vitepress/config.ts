@@ -53,6 +53,7 @@ export default defineConfig({
     siteTitle: '<span class="aix-brand-aiui">AIUI</span> <span class="aix-brand-aix">AIX</span>',
     nav: [
       { text: "Specification", link: "/spec" },
+      { text: "CLI", link: "/cli" },
       { text: "Packages", link: "/packages" },
       { text: "Play", link: "/play" },
       { text: "GitHub", link: "https://github.com/jsar-project/aix" }
@@ -62,6 +63,7 @@ export default defineConfig({
         text: "AIX",
         items: [
           { text: "Specification", link: "/spec" },
+          { text: "CLI", link: "/cli" },
           { text: "Packages", link: "/packages" }
         ]
       }
