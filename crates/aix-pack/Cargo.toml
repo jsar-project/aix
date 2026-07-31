@@ -1,0 +1,20 @@
+[package]
+name = "aiui-aix-pack"
+version = "0.7.0"
+edition = "2021"
+description = "Cross-platform in-memory packer and optimizer for AIX artifacts"
+license = "MIT"
+repository = "https://github.com/jsar-project/aix"
+
+[dependencies]
+aix = { package = "aiui-aix", path = "../aix", version = "0.7.0" }
+anyhow = { workspace = true }
+chardetng = "0.1"
+encoding_rs = "0.8"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { workspace = true }
+zip = { version = "0.6", default-features = false }
+
+[dev-dependencies]
+uuid = { version = "1.0", features = ["v4"] }
