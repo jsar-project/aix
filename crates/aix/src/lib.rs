@@ -4,7 +4,11 @@ extern crate alloc;
 
 use alloc::{format, string::String, string::ToString, vec::Vec};
 use anyhow::{anyhow, Result};
+#[cfg(not(feature = "std"))]
+use hashbrown::HashSet;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "std")]
+use std::collections::HashSet;
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 
@@ -180,12 +184,18 @@ impl AixReader {
 
     /// Reads the package manifest. Older packages may not contain one.
     pub fn get_manifest(&self) -> Result<Option<crypto::PackageManifest>> {
-        match self.read_file(crypto::MANIFEST_PATH) {
-            Ok(data) => serde_json::from_slice(&data)
-                .map(Some)
-                .map_err(|error| anyhow!("Invalid AIX manifest: {}", error)),
-            Err(_) => Ok(None),
+        if !self
+            .entries
+            .iter()
+            .any(|entry| entry.name == crypto::MANIFEST_PATH)
+        {
+            return Ok(None);
         }
+
+        let data = self.read_file(crypto::MANIFEST_PATH)?;
+        serde_json::from_slice(&data)
+            .map(Some)
+            .map_err(|error| anyhow!("Invalid AIX manifest: {}", error))
     }
 
     /// Returns whether this package supports the supplied engine version.
@@ -242,15 +252,16 @@ impl AixReader {
             }
             previous = Some(&entry.path);
         }
+        let signed_paths: HashSet<&str> = manifest
+            .entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect();
         for entry in &self.entries {
-            if entry.name.ends_with('/') || entry.name.starts_with("META-INF/aix/") {
+            if entry.name.ends_with('/') || entry.name.starts_with(crypto::METADATA_PREFIX) {
                 continue;
             }
-            if !manifest
-                .entries
-                .iter()
-                .any(|signed| signed.path == entry.name)
-            {
+            if !signed_paths.contains(entry.name.as_str()) {
                 return Err(anyhow!("Unsigned package entry: {}", entry.name));
             }
         }
@@ -542,6 +553,34 @@ mod tests {
 
         let reader = AixReader::new(data).unwrap();
         assert_eq!(reader.read_file("app.json").unwrap(), br#"{"pages":[]}"#);
+    }
+
+    #[test]
+    fn missing_manifest_returns_none() {
+        let reader = AixReader::new(create_test_aix()).unwrap();
+        assert!(reader.get_manifest().unwrap().is_none());
+    }
+
+    #[test]
+    fn corrupt_manifest_propagates_read_error() {
+        let manifest = br#"{"format":"aix"}"#;
+        let mut data = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(Cursor::new(&mut data));
+            let options = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            zip.start_file(crypto::MANIFEST_PATH, options).unwrap();
+            zip.write_all(manifest).unwrap();
+            zip.finish().unwrap();
+        }
+        let offset = data
+            .windows(manifest.len())
+            .position(|window| window == manifest)
+            .unwrap();
+        data[offset] ^= 1;
+
+        let reader = AixReader::new(data).unwrap();
+        let error = reader.get_manifest().unwrap_err();
+        assert!(error.to_string().contains("Failed to verify"));
     }
 
     #[test]

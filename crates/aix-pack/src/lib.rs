@@ -251,6 +251,7 @@ fn validate_paths(files: &[InputFile]) -> Result<()> {
         if path.is_empty()
             || path.starts_with('/')
             || path.contains('\\')
+            || path.starts_with(aix::crypto::METADATA_PREFIX)
             || path
                 .split('/')
                 .any(|part| part.is_empty() || part == "." || part == "..")
@@ -448,6 +449,21 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("invalid package path"));
+    }
+
+    #[test]
+    fn rejects_reserved_metadata_paths() {
+        for path in [
+            aix::crypto::MANIFEST_PATH,
+            "META-INF/aix/custom-metadata.json",
+        ] {
+            let error = pack(
+                vec![InputFile::new(path, b"{}")],
+                PackOptions::new("test-build"),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("invalid package path"));
+        }
     }
 
     #[test]

@@ -6,6 +6,7 @@ use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+pub const METADATA_PREFIX: &str = "META-INF/aix/";
 pub const MANIFEST_PATH: &str = "META-INF/aix/manifest.json";
 pub const SIGNATURE_PATH: &str = "META-INF/aix/signature.ed25519";
 pub const PUBLIC_KEY_PATH: &str = "META-INF/aix/public-key.ed25519";
