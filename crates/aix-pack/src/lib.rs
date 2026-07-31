@@ -287,14 +287,19 @@ fn optimize_jpeg(data: &[u8], level: u8) -> Result<Vec<u8>> {
 }
 
 fn normalize_text_to_utf8(path: &str, data: &[u8]) -> Result<(Vec<u8>, bool)> {
+    if let Some(content) = data.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        return std::str::from_utf8(content)
+            .map(|_| (content.to_vec(), true))
+            .map_err(|_| anyhow!("Failed to decode {} as UTF-8", path));
+    }
+    if let Some(content) = data.strip_prefix(&[0xFF, 0xFE]) {
+        return decode(path, content, UTF_16LE);
+    }
+    if let Some(content) = data.strip_prefix(&[0xFE, 0xFF]) {
+        return decode(path, content, UTF_16BE);
+    }
     if std::str::from_utf8(data).is_ok() {
         return Ok((data.to_vec(), false));
-    }
-    if data.starts_with(&[0xFF, 0xFE]) {
-        return decode(path, data, UTF_16LE);
-    }
-    if data.starts_with(&[0xFE, 0xFF]) {
-        return decode(path, data, UTF_16BE);
     }
 
     let (decoded, _, errors) = GB18030.decode(data);
@@ -357,5 +362,29 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("invalid package path"));
+    }
+
+    #[test]
+    fn strips_utf8_bom_before_parsing_json() {
+        let mut data = vec![0xEF, 0xBB, 0xBF];
+        data.extend_from_slice(br#"{"pages":[]}"#);
+
+        let prepared = prepare_json("app.json", &data, false).unwrap();
+
+        assert_eq!(prepared.data, br#"{"pages":[]}"#);
+        assert!(prepared.converted_to_utf8);
+    }
+
+    #[test]
+    fn strips_utf16_bom_during_conversion() {
+        let mut data = vec![0xFF, 0xFE];
+        for unit in "const ready = true;".encode_utf16() {
+            data.extend_from_slice(&unit.to_le_bytes());
+        }
+
+        let (normalized, converted) = normalize_text_to_utf8("app.js", &data).unwrap();
+
+        assert_eq!(normalized, b"const ready = true;");
+        assert!(converted);
     }
 }

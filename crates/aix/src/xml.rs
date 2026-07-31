@@ -60,10 +60,9 @@ pub fn parse_xml(content: &str) -> Result<Vec<Node>, String> {
                 children.push(Node::Text(text.to_string()));
             }
         }
-        let Some(relative_end) = content[start + 1..].find('>') else {
+        let Some(end) = find_tag_end(content, start + 1) else {
             return Err(format!("Unclosed tag at position {}", start));
         };
-        let end = start + 1 + relative_end;
         let raw = content[start + 1..end].trim();
         cursor = end + 1;
 
@@ -110,6 +109,19 @@ pub fn parse_xml(content: &str) -> Result<Vec<Node>, String> {
     } else {
         Ok(Vec::new())
     }
+}
+
+fn find_tag_end(content: &str, start: usize) -> Option<usize> {
+    let mut quote = None;
+    for (offset, character) in content[start..].char_indices() {
+        match character {
+            '\'' | '"' if quote == Some(character) => quote = None,
+            '\'' | '"' if quote.is_none() => quote = Some(character),
+            '>' if quote.is_none() => return Some(start + offset),
+            _ => {}
+        }
+    }
+    None
 }
 
 fn close_element(stack: &mut Vec<Node>, name: &str) {
@@ -281,6 +293,24 @@ mod tests {
             assert_eq!(name, "script");
             assert_eq!(attributes.get("setup").unwrap(), "");
             assert_eq!(children.len(), 1);
+        } else {
+            panic!("Expected element");
+        }
+    }
+
+    #[test]
+    fn test_greater_than_inside_quoted_attribute() {
+        let xml = r#"<view wx:if="{{a>b}}" id="result"></view>"#;
+        let nodes = parse_xml(xml).unwrap();
+
+        assert_eq!(nodes.len(), 1);
+        if let Node::Element {
+            name, attributes, ..
+        } = &nodes[0]
+        {
+            assert_eq!(name, "view");
+            assert_eq!(attributes.get("wx:if").unwrap(), "{{a>b}}");
+            assert_eq!(attributes.get("id").unwrap(), "result");
         } else {
             panic!("Expected element");
         }

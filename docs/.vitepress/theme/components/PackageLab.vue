@@ -266,7 +266,7 @@ function formatTool(tool: LabTool): string {
         <span class="lab-topbar-hint">Inspect and build AIX packages in the browser.</span>
       </div>
 
-      <div class="lab-mode-switch" role="tablist" aria-label="Play mode">
+      <div class="lab-mode-switch">
         <button type="button" :class="{ 'is-active': mode === 'inspect' }" @click="mode = 'inspect'">
           Inspect
         </button>

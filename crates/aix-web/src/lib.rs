@@ -23,8 +23,8 @@ pub struct AixPackResultWasm {
 #[wasm_bindgen]
 impl AixPackResultWasm {
     #[wasm_bindgen(getter)]
-    pub fn data(&self) -> Vec<u8> {
-        self.data.clone()
+    pub fn data(&self) -> js_sys::Uint8Array {
+        js_sys::Uint8Array::from(self.data.as_slice())
     }
 
     #[wasm_bindgen(getter)]

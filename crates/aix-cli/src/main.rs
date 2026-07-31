@@ -32,7 +32,7 @@ enum Commands {
         optimize: bool,
 
         /// Optimization level (1-3)
-        #[arg(long, default_value_t = 2)]
+        #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(1..=3))]
         opt_level: u8,
     },
     /// List the contents of a .aix file
@@ -53,7 +53,7 @@ enum Commands {
         output: PathBuf,
 
         /// Optimization level (1-3)
-        #[arg(long, default_value_t = 2)]
+        #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(1..=3))]
         level: u8,
     },
 }
