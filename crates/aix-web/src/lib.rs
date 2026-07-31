@@ -37,6 +37,7 @@ impl AixPackResultWasm {
 pub fn pack_aix(
     files: JsValue,
     build_id: String,
+    engine: String,
     optimize_options: JsValue,
 ) -> Result<AixPackResultWasm, JsValue> {
     let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
@@ -49,8 +50,16 @@ pub fn pack_aix(
                 .map_err(|error| JsValue::from_str(&error.to_string()))?,
         )
     };
-    let output = aix_pack::pack(files, PackOptions { build_id, optimize })
-        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let output = aix_pack::pack(
+        files,
+        PackOptions {
+            build_id,
+            engine,
+            optimize,
+            signing_key: None,
+        },
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
     Ok(AixPackResultWasm {
         data: output.data,
         report: output.report,
@@ -93,6 +102,12 @@ impl AixReaderWasm {
 
     pub fn get_version(&self) -> Option<String> {
         self.inner.get_version()
+    }
+
+    pub fn supports_engine(&self, current_version: &str) -> Result<bool, JsValue> {
+        self.inner
+            .supports_engine(current_version)
+            .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
     pub fn get_title(&self) -> Option<String> {

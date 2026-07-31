@@ -12,7 +12,7 @@ keywords = ["aix", "ai", "agent", "package", "archive"]
 categories = ["encoding", "parser-implementations"]
 
 [lib]
-crate-type = ["lib", "cdylib"]
+crate-type = ["lib"]
 
 [dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
@@ -25,10 +25,14 @@ hashbrown = { version = "0.15", default-features = false, features = ["default-h
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
 log = { version = "0.4", default-features = false }
+ed25519-dalek = { version = "2.2", default-features = false, features = ["alloc", "zeroize", "rand_core"] }
+rand_core = { version = "0.6", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+semver = { version = "1", default-features = false }
 
 [features]
 default = ["std"]
-std = ["anyhow/std", "serde/std", "serde_json/std"]
+std = ["anyhow/std", "serde/std", "serde_json/std", "semver/std"]
 wasm = ["wasm-bindgen", "js-sys", "serde-wasm-bindgen"]
 
 [dev-dependencies]

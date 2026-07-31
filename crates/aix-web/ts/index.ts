@@ -101,12 +101,12 @@ export class AIX {
 
   static async pack(
     files: AixInputFile[],
-    options?: { buildId?: string; optimize?: false | OptimizeOptions },
+    options?: { buildId?: string; engine?: string; optimize?: false | OptimizeOptions },
   ): Promise<PackResult> {
     await init();
     const buildId = options?.buildId ?? generateBuildId();
     const optimize = options?.optimize === false ? undefined : options?.optimize;
-    const result = pack_aix(files, buildId, optimize);
+    const result = pack_aix(files, buildId, options?.engine ?? '*', optimize);
     return { data: result.data, report: result.report as OptimizeReport };
   }
 
@@ -142,6 +142,10 @@ export class AIX {
    */
   getVersion(): string | undefined {
     return this.reader.get_version();
+  }
+
+  supportsEngine(currentVersion: string): boolean {
+    return this.reader.supports_engine(currentVersion);
   }
 
   /**

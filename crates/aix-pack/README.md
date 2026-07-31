@@ -14,7 +14,9 @@ let output = pack(
     vec![InputFile::new("app.json", br#"{ "pages": [] }"#)],
     PackOptions {
         build_id: "build-1".into(),
+        engine: "*".into(),
         optimize: Some(OptimizeOptions::default()),
+        signing_key: None,
     },
 )?;
 

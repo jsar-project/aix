@@ -23,6 +23,7 @@ fn aix_warn(msg: &str) {
 use rawzip::{CompressionMethod, ZipArchive};
 
 pub mod analyzer;
+pub mod crypto;
 pub mod xml;
 pub use analyzer::{PageAnalyzer, PageConstraint};
 
@@ -175,6 +176,101 @@ impl AixReader {
         self.read_file("VERSION")
             .ok()
             .and_then(|v| String::from_utf8(v).ok())
+    }
+
+    /// Reads the package manifest. Older packages may not contain one.
+    pub fn get_manifest(&self) -> Result<Option<crypto::PackageManifest>> {
+        match self.read_file(crypto::MANIFEST_PATH) {
+            Ok(data) => serde_json::from_slice(&data)
+                .map(Some)
+                .map_err(|error| anyhow!("Invalid AIX manifest: {}", error)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// Returns whether this package supports the supplied engine version.
+    pub fn supports_engine(&self, current_version: &str) -> Result<bool> {
+        let manifest = self
+            .get_manifest()?
+            .ok_or_else(|| anyhow!("AIX manifest not found"))?;
+        crypto::engine_satisfies(&manifest.engine, current_version)
+            .map_err(|error| anyhow!("Invalid engine version or range: {}", error))
+    }
+
+    /// Verifies the manifest signature and every package entry against a trusted key.
+    pub fn verify_signature(
+        &self,
+        trusted_key: &crypto::PublicKey,
+    ) -> Result<crypto::VerificationReport> {
+        let manifest_data = self.read_file(crypto::MANIFEST_PATH)?;
+        let manifest: crypto::PackageManifest = serde_json::from_slice(&manifest_data)
+            .map_err(|error| anyhow!("Invalid AIX manifest: {}", error))?;
+        if manifest.format != "aix"
+            || manifest.algorithm != "ed25519"
+            || manifest.digest != "sha256"
+        {
+            return Err(anyhow!("Unsupported AIX signature manifest"));
+        }
+        crypto::validate_engine_range(&manifest.engine)
+            .map_err(|error| anyhow!("Invalid engine range: {}", error))?;
+        if manifest.key_id != trusted_key.key_id() {
+            return Err(anyhow!("Manifest key ID does not match trusted key"));
+        }
+
+        let signature_data = self.read_file(crypto::SIGNATURE_PATH)?;
+        let signature_bytes: [u8; 64] = signature_data
+            .try_into()
+            .map_err(|_| anyhow!("Invalid Ed25519 signature length"))?;
+        let signature = crypto::Signature::from_bytes(signature_bytes);
+        trusted_key
+            .verify(b"package-manifest", &manifest_data, &signature)
+            .map_err(|error| anyhow!("AIX signature verification failed: {}", error))?;
+
+        let mut previous: Option<&str> = None;
+        for entry in &manifest.entries {
+            if previous.is_some_and(|path| path.as_bytes() >= entry.path.as_bytes())
+                || entry.path.starts_with("META-INF/aix/")
+            {
+                return Err(anyhow!(
+                    "Invalid or unsorted manifest entry: {}",
+                    entry.path
+                ));
+            }
+            let data = self.read_file(&entry.path)?;
+            if data.len() as u64 != entry.size || crypto::sha256(&data) != entry.sha256 {
+                return Err(anyhow!("Package entry digest mismatch: {}", entry.path));
+            }
+            previous = Some(&entry.path);
+        }
+        for entry in &self.entries {
+            if entry.name.ends_with('/') || entry.name.starts_with("META-INF/aix/") {
+                continue;
+            }
+            if !manifest
+                .entries
+                .iter()
+                .any(|signed| signed.path == entry.name)
+            {
+                return Err(anyhow!("Unsigned package entry: {}", entry.name));
+            }
+        }
+        let version = self
+            .get_version()
+            .ok_or_else(|| anyhow!("VERSION entry not found"))?;
+        if manifest.version != version {
+            return Err(anyhow!("Manifest version does not match VERSION"));
+        }
+        if crypto::calculate_package_id(&manifest.entries) != manifest.package_id {
+            return Err(anyhow!("Manifest package ID mismatch"));
+        }
+
+        Ok(crypto::VerificationReport {
+            package_id: manifest.package_id,
+            version: manifest.version,
+            engine: manifest.engine,
+            key_id: manifest.key_id,
+            entry_count: manifest.entries.len(),
+        })
     }
 
     pub fn get_title(&self) -> Option<String> {

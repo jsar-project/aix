@@ -34,6 +34,10 @@ enum Commands {
         /// Optimization level (1-3)
         #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(1..=3))]
         opt_level: u8,
+
+        /// Supported AIX engine version range
+        #[arg(long, default_value = "*")]
+        engine: String,
     },
     /// List the contents of a .aix file
     #[command(alias = "ls")]
@@ -67,11 +71,12 @@ fn main() -> Result<()> {
             output,
             optimize,
             opt_level,
+            engine,
         } => {
             let output_path = output
                 .clone()
                 .unwrap_or_else(|| PathBuf::from("bundle.aix"));
-            pack_directory(input_dir, &output_path, *optimize, *opt_level)?;
+            pack_directory(input_dir, &output_path, *optimize, *opt_level, engine)?;
             println!("Successfully packed {:?} to {:?}", input_dir, output_path);
         }
         Commands::List { file } => {
@@ -87,7 +92,13 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn pack_directory(src_dir: &Path, dst_file: &Path, optimize: bool, opt_level: u8) -> Result<()> {
+fn pack_directory(
+    src_dir: &Path,
+    dst_file: &Path,
+    optimize: bool,
+    opt_level: u8,
+    engine: &str,
+) -> Result<()> {
     if !src_dir.is_dir() {
         return Err(anyhow::anyhow!("Input path is not a directory"));
     }
@@ -121,10 +132,12 @@ fn pack_directory(src_dir: &Path, dst_file: &Path, optimize: bool, opt_level: u8
         files,
         PackOptions {
             build_id: uuid,
+            engine: engine.into(),
             optimize: optimize.then(|| OptimizeOptions {
                 level: opt_level,
                 ..OptimizeOptions::default()
             }),
+            signing_key: None,
         },
     )?;
     std::fs::write(dst_file, output.data)?;
