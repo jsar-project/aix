@@ -96,7 +96,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: crates/aix-node-cli
-        run: npm install
+        run: npm ci
 
       - name: Build npm CLI
         working-directory: crates/aix-node-cli

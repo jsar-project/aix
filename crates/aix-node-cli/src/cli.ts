@@ -33,7 +33,7 @@ async function cmdPack(args: string[]) {
     allowPositionals: true,
     options: {
       o: { type: 'string', short: 'o' },
-      O: { type: 'boolean', short: 'O' },
+      optimize: { type: 'boolean', short: 'O' },
       'opt-level': { type: 'string', default: '2' },
       engine: { type: 'string', default: '*' },
     },
@@ -43,7 +43,7 @@ async function cmdPack(args: string[]) {
   }
   const inputDir = positionals[0];
   const outputPath = values.o ?? 'bundle.aix';
-  const optimize = values.O;
+  const optimize = values.optimize;
   const optLevel = Number(values['opt-level']);
   const engine = values.engine;
 
@@ -163,7 +163,10 @@ const args = process.argv.slice(3);
 
 switch (command) {
   case 'pack':
-    void cmdPack(args);
+    cmdPack(args).catch((err) => {
+      process.stderr.write(`error: ${err instanceof Error ? err.message : err}\n`);
+      process.exit(1);
+    });
     break;
   case 'list':
   case 'ls':
