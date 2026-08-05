@@ -1,0 +1,31 @@
+{
+  "name": "@yodaos-pkg/aix-cli",
+  "version": "0.7.0",
+  "description": "Command-line tool for packing, validating, and inspecting AIX artifacts (AI eXecutable packages for AI agents)",
+  "license": "MIT",
+  "main": "dist/cli.js",
+  "bin": {
+    "aix": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node scripts/build.js"
+  },
+  "dependencies": {
+    "ignore": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.com/"
+  }
+}

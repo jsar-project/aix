@@ -42,7 +42,7 @@ That bridge is what gives AIX its format-first value:
 Different runtimes can read the same conceptual artifact:
 
 - `crates/aix` reads and analyzes the package
-- `crates/aix-cli` packages and inspects it from the command line
+- `crates/aix-cli` and `crates/aix-node-cli` package and inspect it from the command line (native and npm surfaces)
 - `crates/aix-web` exposes the reading model in browser environments
 
 ## Explore Further

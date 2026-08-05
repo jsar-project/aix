@@ -1,21 +1,23 @@
 # CLI
 
 The AIX CLI packages application directories, inspects archive contents, and
-optimizes existing `.aix` artifacts. It uses the same Rust packing engine as the
-Web/WASM package.
+optimizes existing `.aix` artifacts. Two surfaces expose the identical `aix`
+command, sharing the same Rust packing engine:
+
+- **npm** (`@yodaos-pkg/aix-cli`) — a TypeScript shell over the Rust engine
+  compiled to a Node.js WASM bundle.
+- **Native (Rust)** (`aiui-aix-cli`) — a compiled binary from the same engine.
 
 ## Install
 
-Install the published crate:
+Pick either install path:
 
 ```bash
+# npm (no Rust toolchain needed)
+npm install -g @yodaos-pkg/aix-cli
+
+# or native Rust
 cargo install aiui-aix-cli
-```
-
-To build the current workspace version instead:
-
-```bash
-cargo install --path crates/aix-cli
 ```
 
 After installation, confirm that the command is available:
@@ -133,16 +135,23 @@ verification is required.
 
 ## Run From The Workspace
 
-During development, run the CLI without installing it:
+During development, run either surface without installing it globally:
 
 ```bash
+# npm surface
+cd crates/aix-node-cli
+npm install
+npm run build
+node dist/cli.js pack ./my-agent -o bundle.aix
+
+# native Rust surface
 cargo run -p aiui-aix-cli -- pack ./my-agent -o bundle.aix
 ```
 
 Pass `--help` after a subcommand to inspect its current options:
 
 ```bash
-cargo run -p aiui-aix-cli -- pack --help
+node dist/cli.js pack --help
 ```
 
 ## Related Documentation

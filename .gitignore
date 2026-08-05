@@ -4,6 +4,8 @@
 /crates/aix-web/node_modules/
 /crates/aix-web/dist/
 /crates/aix-web/pkg/
+/crates/aix-node-cli/node_modules/
+/crates/aix-node-cli/dist/
 /docs/node_modules/
 /docs/.vitepress/dist/
 /docs/.vitepress/cache/

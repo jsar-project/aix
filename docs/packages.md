@@ -1,6 +1,6 @@
 # Packages
 
-The AIX repository is organized as a Rust workspace with four format-facing surfaces.
+The AIX repository is organized as a Rust workspace with these format-facing surfaces.
 
 ## `crates/aix`
 
@@ -26,7 +26,8 @@ resources using pure Rust codecs.
 
 ## `crates/aix-cli`
 
-The CLI is the packaging and inspection surface.
+The native Rust CLI (`aiui-aix-cli`) is the packaging and inspection surface,
+installed with `cargo install aiui-aix-cli`. The binary is named `aix`.
 
 It turns the format into developer workflows such as:
 
@@ -34,7 +35,18 @@ It turns the format into developer workflows such as:
 - validating and normalizing packaged assets
 - listing package contents
 
-This is the operational bridge between source files and the final format artifact.
+## `crates/aix-node-cli`
+
+The npm-published CLI (`@yodaos-pkg/aix-cli`) is the packaging and inspection
+surface, installed with `npm install -g @yodaos-pkg/aix-cli`. It is a thin
+TypeScript shell over the same WASM engine, so its behavior matches the native
+Rust CLI — the two surfaces are interchangeable.
+
+It turns the format into developer workflows such as:
+
+- packaging directories into `.aix`
+- validating and normalizing packaged assets
+- listing package contents
 
 ## `crates/aix-web`
 
@@ -47,7 +59,7 @@ It makes the format readable inside interactive interfaces, including the offici
 Typical validation flow:
 
 ```bash
-cargo test -p aiui-aix -p aiui-aix-pack -p aiui-aix-cli
+cargo test -p aiui-aix -p aiui-aix-cli
 cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 ```
 
