@@ -76,7 +76,10 @@ let content = reader.read_file("app.json")?;
 
 ## CLI Tool
 
-For the CLI tool to pack and list packages, please use [aix-cli](../aix-cli).
+Two CLI surfaces expose the same `aix` command:
+
+- native Rust: [aix-cli](../aix-cli), install with `cargo install aiui-aix-cli`
+- npm: `npm install -g @yodaos-pkg/aix-cli`
 
 ## Web Support
 

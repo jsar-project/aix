@@ -6,12 +6,13 @@ It packages pages, schema, and tools into a distributable artifact that stays re
 
 ## What This Repository Contains
 
-This repository is a Rust workspace with four package-facing surfaces:
+This repository is a Rust workspace with these package-facing surfaces:
 
 - `crates/aix`: the `no_std + alloc` package reader, cryptography, signature verification, page analysis, and tool derivation layer
 - `crates/aix-pack`: the in-memory Native/WASM packaging and optimization layer
-- `crates/aix-cli`: the command-line surface for packaging, validating, and inspecting `.aix` artifacts
+- `crates/aix-cli`: the native Rust CLI (`aiui-aix-cli`), binary named `aix`
 - `crates/aix-web`: the WASM and TypeScript surface for browser-based AIX inspection and integration
+- `crates/aix-node-cli`: the npm-published CLI (`@yodaos-pkg/aix-cli`), a TypeScript shell over the same WASM engine
 - `docs`: the official documentation site, including `Specification`, `Packages`, and `Play`
 
 ## Workspace Layout
@@ -22,7 +23,8 @@ This repository is a Rust workspace with four package-facing surfaces:
 │   ├── aix/
 │   ├── aix-pack/
 │   ├── aix-cli/
-│   └── aix-web/
+│   ├── aix-web/
+│   └── aix-node-cli/
 ├── docs/
 ├── Cargo.toml
 └── README.md
@@ -67,9 +69,16 @@ shared by the CLI and Web/WASM package. Every newly packed artifact contains a
 manifest. Callers may optionally supply an Ed25519 private key to sign the final,
 optimized package contents.
 
-### `crates/aix-cli`
+### `crates/aix-cli` and `crates/aix-node-cli`
 
-The CLI turns the format into terminal workflows. It currently focuses on:
+Two CLI surfaces share the same packing engine and expose the identical `aix`
+command. Pick whichever install path suits you:
+
+- **Native (Rust):** `cargo install aiui-aix-cli` — compiled from `crates/aix-cli`.
+- **npm:** `npm install -g @yodaos-pkg/aix-cli` — a TypeScript shell from
+  `crates/aix-node-cli` over the Rust engine compiled to a Node.js WASM bundle.
+
+It currently focuses on:
 
 - `aix pack <INPUT_DIR>` for building `.aix` artifacts, with an optional engine version range
 - `aix list <AIX_FILE>` or `aix ls <AIX_FILE>` for inspecting package contents
@@ -144,12 +153,21 @@ fn main() -> anyhow::Result<()> {
 
 ### Package Or Inspect With The CLI
 
-```bash
-cargo run -p aiui-aix-cli -- pack ./my-agent -o bundle.aix --engine '^0.14.0'
-```
+Install the `aix` command either way — both surfaces are behavior-identical:
 
 ```bash
-cargo run -p aiui-aix-cli -- list ./bundle.aix
+# npm (no Rust toolchain needed)
+npm install -g @yodaos-pkg/aix-cli
+
+# or native Rust
+cargo install aiui-aix-cli
+```
+
+Then:
+
+```bash
+aix pack ./my-agent -o bundle.aix --engine '^0.14.0'
+aix list ./bundle.aix
 ```
 
 The engine range defaults to `*`. A complete version such as `0.14.0` is an
@@ -227,7 +245,7 @@ npm run dev
 Validate the workspace from the repository root:
 
 ```bash
-cargo test -p aiui-aix -p aiui-aix-pack -p aiui-aix-cli
+cargo test -p aiui-aix -p aiui-aix-cli
 cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 ```
 

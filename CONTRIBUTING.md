@@ -2,12 +2,13 @@
 
 Thanks for contributing to AIX.
 
-AIX is an executable package format for AI agents. This repository is a Rust workspace with four package-facing surfaces:
+AIX is an executable package format for AI agents. This repository is a Rust workspace with these package-facing surfaces:
 
 - `crates/aix`: core Rust library
 - `crates/aix-pack`: in-memory Native/WASM packer and optimizer
-- `crates/aix-cli`: command-line interface
+- `crates/aix-cli`: native Rust CLI (`aiui-aix-cli`)
 - `crates/aix-web`: WASM and TypeScript package
+- `crates/aix-node-cli`: npm-published CLI (`@yodaos-pkg/aix-cli`)
 - `docs`: the VitePress documentation site
 
 ## Before You Start
@@ -38,7 +39,8 @@ npm --version
 │   ├── aix/
 │   ├── aix-pack/
 │   ├── aix-cli/
-│   └── aix-web/
+│   ├── aix-web/
+│   └── aix-node-cli/
 ├── docs/
 ├── .github/workflows/
 ├── Cargo.toml
@@ -49,8 +51,9 @@ The workspace is intentionally split by surface area:
 
 - `aix` owns the package model and analysis logic
 - `aix-pack` owns in-memory packaging, normalization, and resource optimization
-- `aix-cli` turns the format into terminal workflows
+- `aix-cli` is the native Rust command-line interface (binary `aix`)
 - `aix-web` exposes the same capabilities through WASM and TypeScript
+- `aix-node-cli` is the npm-published command-line interface (`@yodaos-pkg/aix-cli`, binary `aix`) — a TypeScript shell over the same engine
 - `docs` is the official site for `Specification`, `Packages`, and `Play`
 
 ## Build From Source
@@ -60,7 +63,7 @@ The workspace is intentionally split by surface area:
 From the repository root:
 
 ```bash
-cargo test -p aiui-aix -p aiui-aix-pack -p aiui-aix-cli
+cargo test -p aiui-aix -p aiui-aix-cli
 cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 ```
 
@@ -107,9 +110,11 @@ Typical workflow:
 When changing multiple surfaces, prefer validating them in this order:
 
 1. `crates/aix`
-2. `crates/aix-cli`
-3. `crates/aix-web`
-4. `docs`
+2. `crates/aix-pack`
+3. `crates/aix-cli`
+4. `crates/aix-web`
+5. `crates/aix-node-cli`
+6. `docs`
 
 This keeps the core model stable before checking derived interfaces.
 
@@ -156,6 +161,9 @@ cargo check -p aiui-aix-web --target wasm32-unknown-unknown
 
 # Web package build
 cd crates/aix-web && npm install && npm run build
+
+# npm CLI build and smoke test
+cd crates/aix-node-cli && npm install && npm run build && node dist/cli.js --help
 
 # Docs site build
 cd docs && npm install && npm run build
@@ -210,20 +218,28 @@ cargo publish -p aiui-aix --dry-run
 cargo package -p aiui-aix-cli --list
 ```
 
-### Publish the npm package
+### Publish the npm CLI package
 
-The npm package lives under `crates/aix-web`, but the publish-ready package is generated into `crates/aix-web/dist`.
+The npm CLI package lives under `crates/aix-node-cli` and is published as `@yodaos-pkg/aix-cli`.
 
 Recommended process:
 
 ```bash
-cd crates/aix-web
+cd crates/aix-node-cli
 npm install
 npm run build
-cd dist
 npm pack --dry-run
 npm publish --access public
 ```
+
+The repository also includes a manual GitHub Actions workflow at `.github/workflows/publish-npm-cli.yml`; it expects `NPM_TOKEN` in GitHub Actions secrets for non-dry-run releases.
+
+Notes:
+
+- The build runs `wasm-pack build --target nodejs` from `crates/aix-web` and then bundles `src/cli.ts` with esbuild into `dist/cli.js`, copying the WASM artifact to `dist/pkg/`.
+- The WASM wrapper (`dist/pkg/aix_web.js`) resolves `aix_web_bg.wasm` relative to its own `__dirname`, so the two files must stay adjacent — do **not** bundle the wrapper into cli.js (the `require(path.join(__dirname, 'pkg', ...))` in `src/wasm.ts` is intentional).
+- `ignore` is the only runtime dependency (`.aixignore` support); it is external in the esbuild bundle.
+- The engine is compiled with `--no-opt` to skip binaryen/wasm-opt downloads.
 
 Notes:
 
@@ -237,7 +253,8 @@ If a release includes both crates and npm:
 1. publish `aiui-aix`
 2. publish `aiui-aix-cli`
 3. build and publish `@yodaos-pkg/aix`
-4. verify the docs site still resolves the released package as expected
+4. build and publish `@yodaos-pkg/aix-cli`
+5. verify the docs site still resolves the released package as expected
 
 ## Pull Request Guidelines
 
@@ -257,7 +274,7 @@ Good pull requests are easy to review because they explain:
 
 When filing an issue, include as much of the following as possible:
 
-- the package or surface involved (`aix`, `aix-cli`, `aix-web`, or `docs`)
+- the package or surface involved (`aix`, `aix-pack`, `aix-web`, `aix-cli`, or `docs`)
 - reproduction steps
 - expected behavior
 - actual behavior

@@ -70,3 +70,38 @@ jobs:
 
       - name: Check WASM target
         run: cargo check -p aiui-aix-web --target wasm32-unknown-unknown
+
+  npm-cli:
+    name: npm CLI Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: crates/aix-node-cli/package-lock.json
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Install dependencies
+        working-directory: crates/aix-node-cli
+        run: npm install
+
+      - name: Build npm CLI
+        working-directory: crates/aix-node-cli
+        run: npm run build
+
+      - name: Smoke test
+        working-directory: crates/aix-node-cli
+        run: node dist/cli.js --help
