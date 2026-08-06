@@ -1,8 +1,8 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { parseArgs } from 'node:util';
-import { loadEngine, AixInputFile, AixPackResult } from './wasm';
-import { walkDirectory, WalkedFile } from './walk';
+import fs from "node:fs";
+import path from "node:path";
+import { parseArgs } from "node:util";
+import { loadEngine, AixInputFile, AixPackResult } from "./wasm";
+import { walkDirectory, WalkedFile } from "./walk";
 
 function formatSize(bytes: number): string {
   const KB = 1024;
@@ -27,24 +27,32 @@ function writeOutput(data: Uint8Array, outputPath: string) {
   fs.writeFileSync(outputPath, Buffer.from(data));
 }
 
+function parseLevel(value: string, flagName: string): 1 | 2 | 3 {
+  const level = Number(value);
+  if (!Number.isInteger(level) || level < 1 || level > 3) {
+    printError(`${flagName} must be an integer between 1 and 3`);
+  }
+  return level as 1 | 2 | 3;
+}
+
 async function cmdPack(args: string[]) {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
     options: {
-      o: { type: 'string', short: 'o' },
-      optimize: { type: 'boolean', short: 'O' },
-      'opt-level': { type: 'string', default: '2' },
-      engine: { type: 'string', default: '*' },
+      o: { type: "string", short: "o" },
+      optimize: { type: "boolean", short: "O" },
+      "opt-level": { type: "string", default: "2" },
+      engine: { type: "string", default: "*" },
     },
   });
   if (positionals.length !== 1) {
-    printError('pack requires an input directory');
+    printError("pack requires an input directory");
   }
   const inputDir = positionals[0];
-  const outputPath = values.o ?? 'bundle.aix';
+  const outputPath = values.o ?? "bundle.aix";
   const optimize = values.optimize;
-  const optLevel = Number(values['opt-level']);
+  const optLevel = parseLevel(values["opt-level"], "--opt-level");
   const engine = values.engine;
 
   const files = walkDirectory(inputDir);
@@ -60,7 +68,7 @@ async function cmdPack(args: string[]) {
   }));
 
   const buildId = crypto.randomUUID();
-  const result: AixPackResult = engineApi.pack_aix(
+  const result: AixPackResult = engineApi.pack_aix_from_source(
     inputFiles,
     buildId,
     engine,
@@ -72,11 +80,11 @@ async function cmdPack(args: string[]) {
   for (const file of result.report.files) {
     if (file.converted_to_utf8) {
       process.stdout.write(`Converted ${file.path} to UTF-8 for packaging\n`);
-    } else if (file.status === 'optimized') {
+    } else if (file.status === "optimized") {
       process.stdout.write(
         `Optimized ${file.path}: ${formatSize(file.original_size)} -> ${formatSize(file.output_size)} (saved ${formatSize(file.saved_bytes)})\n`,
       );
-    } else if (file.path !== 'VERSION') {
+    } else if (file.path !== "VERSION") {
       process.stdout.write(`Adding file: ${file.path}\n`);
     }
   }
@@ -97,7 +105,7 @@ async function cmdPack(args: string[]) {
 function cmdList(args: string[]) {
   const { positionals } = parseArgs({ args, allowPositionals: true });
   if (positionals.length !== 1) {
-    printError('list requires an .aix file');
+    printError("list requires an .aix file");
   }
   const filePath = positionals[0];
   const engineApi = loadEngine();
@@ -116,19 +124,19 @@ function cmdOptimize(args: string[]) {
     args,
     allowPositionals: true,
     options: {
-      o: { type: 'string', short: 'o' },
-      level: { type: 'string', default: '2' },
+      o: { type: "string", short: "o" },
+      level: { type: "string", default: "2" },
     },
   });
   if (positionals.length !== 1) {
-    printError('optimize requires an .aix file');
+    printError("optimize requires an .aix file");
   }
   if (!values.o) {
-    printError('optimize requires an output path (-o)');
+    printError("optimize requires an output path (-o)");
   }
   const inputPath = positionals[0];
   const outputPath = values.o;
-  const level = Number(values.level);
+  const level = parseLevel(values.level, "--level");
 
   const engineApi = loadEngine();
   const result = engineApi.optimize_aix(readFileAsBytes(inputPath), {
@@ -147,14 +155,14 @@ function cmdOptimize(args: string[]) {
 function usage() {
   process.stdout.write(
     [
-      'aix - AIX package manager',
-      '',
-      'Usage:',
-      '  aix pack <INPUT_DIR> [-o OUTPUT] [-O] [--opt-level N] [--engine RANGE]',
-      '  aix list <AIX_FILE>   (alias: aix ls <AIX_FILE>)',
-      '  aix optimize <AIX_FILE> -o <OUTPUT> [--level N]',
-      '',
-    ].join('\n'),
+      "aix - AIX package manager",
+      "",
+      "Usage:",
+      "  aix pack <INPUT_DIR> [-o OUTPUT] [-O] [--opt-level N] [--engine RANGE]",
+      "  aix list <AIX_FILE>   (alias: aix ls <AIX_FILE>)",
+      "  aix optimize <AIX_FILE> -o <OUTPUT> [--level N]",
+      "",
+    ].join("\n"),
   );
 }
 
@@ -162,17 +170,19 @@ const command = process.argv[2];
 const args = process.argv.slice(3);
 
 switch (command) {
-  case 'pack':
+  case "pack":
     cmdPack(args).catch((err) => {
-      process.stderr.write(`error: ${err instanceof Error ? err.message : err}\n`);
+      process.stderr.write(
+        `error: ${err instanceof Error ? err.message : err}\n`,
+      );
       process.exit(1);
     });
     break;
-  case 'list':
-  case 'ls':
+  case "list":
+  case "ls":
     cmdList(args);
     break;
-  case 'optimize':
+  case "optimize":
     cmdOptimize(args);
     break;
   default:

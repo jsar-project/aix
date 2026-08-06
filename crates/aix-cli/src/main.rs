@@ -1,7 +1,6 @@
-use aix_pack::{InputFile, OptimizeOptions, PackOptions};
+use aix_pack::{collector::CollectOptions, OptimizeOptions, PackOptions};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use ignore::WalkBuilder;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -99,37 +98,12 @@ fn pack_directory(
     opt_level: u8,
     engine: &str,
 ) -> Result<()> {
-    if !src_dir.is_dir() {
-        return Err(anyhow::anyhow!("Input path is not a directory"));
-    }
-
     let uuid = Uuid::new_v4().to_string();
     println!("Generated UUID: {}", uuid);
 
-    // Use ignore::WalkBuilder to respect .aixignore and other ignore files
-    let walker = WalkBuilder::new(src_dir)
-        .add_custom_ignore_filename(".aixignore")
-        .build();
-
-    let mut files = Vec::new();
-
-    for result in walker {
-        let entry = result?;
-        let path = entry.path();
-
-        // Compute relative path
-        let name = path.strip_prefix(src_dir)?;
-        let path_as_string = name.to_string_lossy().replace("\\", "/"); // normalize for zip
-
-        if path.is_file() {
-            let mut f = File::open(path)?;
-            let mut buffer = Vec::new();
-            f.read_to_end(&mut buffer)?;
-            files.push(InputFile::new(path_as_string, buffer));
-        }
-    }
-    let output = aix_pack::pack(
-        files,
+    let output = aix_pack::collector::pack_directory(
+        src_dir,
+        &CollectOptions::default(),
         PackOptions {
             build_id: uuid,
             engine: engine.into(),

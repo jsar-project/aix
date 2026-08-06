@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Write};
 use zip::write::FileOptions;
 
+pub mod collector;
+
 const UTF8_TEXT_EXTENSIONS: &[&str] = &["json", "js", "ink"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -367,7 +369,7 @@ fn optimize_jpeg(data: &[u8], level: u8) -> Result<Vec<u8>> {
     Ok(output)
 }
 
-fn normalize_text_to_utf8(path: &str, data: &[u8]) -> Result<(Vec<u8>, bool)> {
+pub(crate) fn normalize_text_to_utf8(path: &str, data: &[u8]) -> Result<(Vec<u8>, bool)> {
     if let Some(content) = data.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
         return std::str::from_utf8(content)
             .map(|_| (content.to_vec(), true))

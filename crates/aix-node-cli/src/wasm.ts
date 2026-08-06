@@ -11,6 +11,12 @@ type WasmEngine = {
     engine: string,
     optimize: unknown,
   ) => AixPackResult;
+  pack_aix_from_source: (
+    files: AixInputFile[],
+    buildId: string,
+    engine: string,
+    optimize: unknown,
+  ) => AixPackResult;
   optimize_aix: (data: Uint8Array, options: unknown) => AixPackResult;
 };
 

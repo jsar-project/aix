@@ -59,6 +59,7 @@ dependencies = [
  "anyhow",
  "chardetng",
  "encoding_rs",
+ "ignore",
  "image",
  "serde",
  "serde_json",

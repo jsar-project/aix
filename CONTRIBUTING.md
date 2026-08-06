@@ -239,7 +239,7 @@ Notes:
 - The build runs `wasm-pack build --target nodejs` from `crates/aix-web` and then bundles `src/cli.ts` with esbuild into `dist/cli.js`, copying the WASM artifact to `dist/pkg/`.
 - The WASM wrapper (`dist/pkg/aix_web.js`) resolves `aix_web_bg.wasm` relative to its own `__dirname`, so the two files must stay adjacent — do **not** bundle the wrapper into cli.js (the `require(path.join(__dirname, 'pkg', ...))` in `src/wasm.ts` is intentional).
 - `ignore` is the only runtime dependency (`.aixignore` support); it is external in the esbuild bundle.
-- The engine is compiled with `--no-opt` to skip binaryen/wasm-opt downloads.
+- The npm CLI build prefers `wasm-pack --no-opt` to skip binaryen/wasm-opt downloads, but falls back to the default `wasm-pack build` flow when the local `wasm-pack` version does not support that flag.
 - The published version is generated from `crates/aix-web/Cargo.toml`, not copied from the source `package.json` version field.
 - `npm run build` creates `dist/package.json`, copies the README, and prepares `dist/pkg` for publishing.
 - Publish from `dist/`, not from `crates/aix-web/`.

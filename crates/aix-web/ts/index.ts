@@ -1,4 +1,9 @@
-import init, { AixReaderWasm, optimize_aix, pack_aix } from '../dist/pkg/aix_web.js';
+import init, {
+  AixReaderWasm,
+  optimize_aix,
+  pack_aix,
+} from '../dist/pkg/aix_web.js';
+import * as wasmExports from '../dist/pkg/aix_web.js';
 
 export interface AixInputFile {
   path: string;
@@ -32,6 +37,19 @@ export interface PackResult {
   data: Uint8Array;
   report: OptimizeReport;
 }
+
+type PackOptions = {
+  buildId?: string;
+  engine?: string;
+  optimize?: false | OptimizeOptions;
+};
+
+type PackFromSourceFn = (
+  files: AixInputFile[],
+  buildId: string,
+  engine: string,
+  optimize: false | OptimizeOptions | undefined,
+) => { data: Uint8Array; report: unknown };
 
 function generateBuildId(): string {
   const cryptoApi = globalThis.crypto;
@@ -101,12 +119,29 @@ export class AIX {
 
   static async pack(
     files: AixInputFile[],
-    options?: { buildId?: string; engine?: string; optimize?: false | OptimizeOptions },
+    options?: PackOptions,
   ): Promise<PackResult> {
     await init();
     const buildId = options?.buildId ?? generateBuildId();
     const optimize = options?.optimize === false ? undefined : options?.optimize;
     const result = pack_aix(files, buildId, options?.engine ?? '*', optimize);
+    return { data: result.data, report: result.report as OptimizeReport };
+  }
+
+  static async packFromFiles(files: File[], options?: PackOptions): Promise<PackResult> {
+    await init();
+    const buildId = options?.buildId ?? generateBuildId();
+    const optimize = options?.optimize === false ? undefined : options?.optimize;
+    const sourceFiles = await Promise.all(files.map(async (file) => ({
+      path: resolveWebFilePath(file),
+      data: new Uint8Array(await file.arrayBuffer()),
+    })));
+    const result = getPackFromSource()(
+      sourceFiles,
+      buildId,
+      options?.engine ?? '*',
+      optimize,
+    );
     return { data: result.data, report: result.report as OptimizeReport };
   }
 
@@ -168,4 +203,19 @@ export class AIX {
   getTools(): Tool[] {
     return (this.reader as any).get_tools() as Tool[];
   }
+}
+
+function resolveWebFilePath(file: File): string {
+  const candidate = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+  return candidate && candidate.length > 0 ? candidate : file.name;
+}
+
+function getPackFromSource(): PackFromSourceFn {
+  const packFromSource = (wasmExports as typeof wasmExports & {
+    pack_aix_from_source?: PackFromSourceFn;
+  }).pack_aix_from_source;
+  if (!packFromSource) {
+    throw new Error('pack_aix_from_source is not available in the current WASM bundle');
+  }
+  return packFromSource;
 }

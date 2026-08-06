@@ -1,5 +1,5 @@
 use aix::AixReader;
-use aix_pack::{InputFile, OptimizeOptions, PackOptions};
+use aix_pack::{collector::CollectOptions, InputFile, OptimizeOptions, PackOptions};
 use anyhow::Result;
 use wasm_bindgen::prelude::*;
 
@@ -42,16 +42,36 @@ pub fn pack_aix(
 ) -> Result<AixPackResultWasm, JsValue> {
     let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
-    let optimize = if optimize_options.is_null() || optimize_options.is_undefined() {
-        None
-    } else {
-        Some(
-            serde_wasm_bindgen::from_value(optimize_options)
-                .map_err(|error| JsValue::from_str(&error.to_string()))?,
-        )
-    };
+    let optimize = parse_optimize_options(optimize_options)?;
     let output = aix_pack::pack(
         files,
+        PackOptions {
+            build_id,
+            engine,
+            optimize,
+            signing_key: None,
+        },
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    Ok(AixPackResultWasm {
+        data: output.data,
+        report: output.report,
+    })
+}
+
+#[wasm_bindgen]
+pub fn pack_aix_from_source(
+    files: JsValue,
+    build_id: String,
+    engine: String,
+    optimize_options: JsValue,
+) -> Result<AixPackResultWasm, JsValue> {
+    let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let optimize = parse_optimize_options(optimize_options)?;
+    let output = aix_pack::collector::pack_source_files(
+        files,
+        &CollectOptions::default(),
         PackOptions {
             build_id,
             engine,
@@ -80,6 +100,17 @@ pub fn optimize_aix(data: Vec<u8>, options: JsValue) -> Result<AixPackResultWasm
         data: output.data,
         report: output.report,
     })
+}
+
+fn parse_optimize_options(optimize_options: JsValue) -> Result<Option<OptimizeOptions>, JsValue> {
+    if optimize_options.is_null() || optimize_options.is_undefined() {
+        Ok(None)
+    } else {
+        Ok(Some(
+            serde_wasm_bindgen::from_value(optimize_options)
+                .map_err(|error| JsValue::from_str(&error.to_string()))?,
+        ))
+    }
 }
 
 #[wasm_bindgen]

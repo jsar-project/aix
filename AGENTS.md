@@ -33,7 +33,7 @@ cd crates/aix-node-cli && npm install && npm run build
 - `npm run build` runs `wasm-pack build --target nodejs` (from `crates/aix-web`) then bundles `src/cli.ts` with esbuild into `dist/cli.js`, copying the WASM artifact to `dist/pkg/`.
 - The WASM wrapper (`dist/pkg/aix_web.js`) resolves `aix_web_bg.wasm` relative to its own `__dirname`, so the two files must stay adjacent — do **not** bundle the wrapper into cli.js (the `require(path.join(__dirname, 'pkg', ...))` in `src/wasm.ts` is intentional).
 - `ignore` is the only runtime dependency (`.aixignore` support); it is external in the esbuild bundle.
-- The engine is compiled with `--no-opt` to skip binaryen/wasm-opt downloads.
+- The npm CLI build prefers `wasm-pack --no-opt` to skip binaryen/wasm-opt downloads, but falls back to the default `wasm-pack build` flow when the local `wasm-pack` version does not support that flag.
 
 ## Development commands
 
@@ -50,7 +50,7 @@ cargo check -p aiui-aix --no-default-features
 - CI runs `cargo test -p aiui-aix -p aiui-aix-cli` on native, plus a wasm check and an npm CLI build job. `aiui-aix-pack` has its own unit tests but CI does **not** run them — run `cargo test -p aiui-aix-pack` yourself when you touch it.
 - WASM checks require `cargo` with the `wasm32-unknown-unknown` target installed: `rustup target add wasm32-unknown-unknown`.
 - Evaluating a full WASM build requires `wasm-pack`: `cd crates/aix-web && npm install && npm run build` (outputs to `crates/aix-web/dist`).
-- Building the npm CLI requires the same toolchain (rustup + wasm32 target + wasm-pack): `cd crates/aix-node-cli && npm install && npm run build`. `wasm-pack` runs with `--no-opt`, so it skips downloading binaryen — this matters in sandboxed/offline CI.
+- Building the npm CLI requires the same toolchain (rustup + wasm32 target + wasm-pack): `cd crates/aix-node-cli && npm install && npm run build`. The build script first tries `wasm-pack --no-opt` to avoid binaryen downloads, then falls back automatically when that flag is unsupported by the installed `wasm-pack`.
 
 ## Docs site (VitePress)
 
