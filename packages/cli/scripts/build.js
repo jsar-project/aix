@@ -27,10 +27,10 @@ for (const file of ["aix_web.js", "aix_web_bg.wasm"]) {
 }
 
 // The WASM wrapper is intentionally NOT bundled: cli.ts loads it through a
-// dynamic require so its __dirname stays correct. `ignore` is external for
-// the same reason (it must resolve from node_modules at runtime).
+// dynamic require so its __dirname stays correct. Runtime-only node_modules
+// dependencies stay external as well.
 execSync(
-  'npx esbuild src/cli.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/cli.js --banner:js="#!/usr/bin/env node" --external:ignore',
+  'npx esbuild src/cli.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/cli.js --banner:js="#!/usr/bin/env node" --external:ignore --external:ws',
   { cwd: rootDir, stdio: "inherit" },
 );
 
@@ -50,19 +50,6 @@ function buildNodeWasm() {
     "--out-name",
     "aix_web",
   ];
-  const firstAttempt = runWasmPack([...baseArgs, "--no-opt"]);
-  if (firstAttempt.status === 0) {
-    return;
-  }
-
-  const output = `${firstAttempt.stdout}\n${firstAttempt.stderr}`;
-  if (!output.includes("unexpected argument '--no-opt'")) {
-    throw new Error(output.trim() || "wasm-pack build failed");
-  }
-
-  console.warn(
-    "wasm-pack does not support --no-opt in this environment; falling back to default build settings.",
-  );
   const fallbackAttempt = runWasmPack(baseArgs);
   if (fallbackAttempt.status !== 0) {
     throw new Error(

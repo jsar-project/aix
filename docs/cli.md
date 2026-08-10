@@ -133,6 +133,68 @@ package contents, it removes any previous signature and writes a new unsigned
 manifest. Sign the optimized artifact again before distribution when signature
 verification is required.
 
+## Preview In The Browser
+
+Preview either an existing `.aix` package or an AIX source directory in a local
+browser host powered by `@yodaos-pkg/ink`:
+
+```bash
+aix preview ./bundle.aix
+aix preview ./my-agent
+```
+
+By default, the command starts a local HTTP server, serves the preview page from
+memory, and prints the preview URL without opening the browser automatically.
+The default preview mode embeds a snapshot of the current bundle contents into a
+single HTML document while loading the Ink SDK from the network at runtime. The
+preview viewport is fixed at `448x352`.
+
+If you want the CLI to launch your default browser automatically, add
+`--launch`:
+
+```bash
+aix preview ./bundle.aix --launch
+```
+
+### Export A Static Preview
+
+Use `--html-out` when you want to write the generated HTML to disk instead of
+starting a local server:
+
+```bash
+aix preview ./bundle.aix --html-out ./artifacts/preview.html
+```
+
+When `--html-out` is provided:
+
+- the CLI writes the generated HTML to the requested file
+- relative output paths resolve from the current working directory
+- parent directories are created automatically when needed
+- no local preview server is started
+- the browser is not opened automatically
+- `--launch` is not allowed
+
+### Development Mode
+
+Use `--dev` when you want the preview page to load state from the preview server
+instead of embedding a fixed snapshot:
+
+```bash
+aix preview ./bundle.aix --dev
+aix preview ./my-agent --dev
+aix preview ./my-agent --dev --launch
+```
+
+In `--dev` mode:
+
+- the local preview server always starts
+- the page fetches preview state from the server
+- the page connects to a WebSocket endpoint for change notifications
+- `.aix` file changes and directory file changes both trigger live reload
+- the page rebuilds the `InkView` without refreshing the full document
+- `--html-out` is not allowed
+- add `--launch` if you want the browser to open automatically
+
 ## Run From The Workspace
 
 During development, run either surface without installing it globally:

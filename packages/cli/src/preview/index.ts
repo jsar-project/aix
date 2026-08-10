@@ -1,0 +1,73 @@
+import path from "node:path";
+import { parseArgs } from "node:util";
+import { renderPreviewHtml } from "./html";
+import { startDevPreviewServer, startStaticPreviewServer } from "./server";
+import { buildPreviewState } from "./state";
+import {
+  installSignalHandlers,
+  openInBrowser,
+  writeHtmlOutput,
+} from "./utils";
+
+export async function cmdPreview(args: string[]) {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      "html-out": { type: "string" },
+      dev: { type: "boolean", default: false },
+      launch: { type: "boolean", default: false },
+    },
+  });
+
+  if (positionals.length !== 1) {
+    throw new Error("preview requires an input file or directory");
+  }
+
+  if (values.dev && values["html-out"]) {
+    throw new Error("--html-out cannot be used with --dev");
+  }
+
+  if (values.launch && values["html-out"]) {
+    throw new Error("--launch cannot be used with --html-out");
+  }
+
+  const inputPath = path.resolve(positionals[0]);
+  const htmlOut = values["html-out"];
+
+  if (values.dev) {
+    const preview = await startDevPreviewServer(inputPath);
+    installSignalHandlers(() => preview.close());
+    process.stdout.write(`Preview dev server running at ${preview.url}\n`);
+    process.stdout.write("Press Ctrl+C to stop preview.\n");
+    if (values.launch) {
+      openInBrowser(preview.url);
+    }
+    return;
+  }
+
+  const state = buildPreviewState(inputPath);
+  const html = renderPreviewHtml({
+    mode: "static",
+    sourceLabel: state.sourceName,
+    title: state.title,
+    version: state.version,
+    fileCount: state.files.length,
+    initialState: state,
+  });
+
+  if (htmlOut) {
+    const outputPath = path.resolve(process.cwd(), htmlOut);
+    writeHtmlOutput(outputPath, html);
+    process.stdout.write(`Preview HTML created: ${outputPath}\n`);
+    return;
+  }
+
+  const preview = await startStaticPreviewServer(html);
+  installSignalHandlers(() => preview.close());
+  process.stdout.write(`Preview server running at ${preview.url}\n`);
+  process.stdout.write("Press Ctrl+C to stop preview.\n");
+  if (values.launch) {
+    openInBrowser(preview.url);
+  }
+}

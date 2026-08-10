@@ -1,8 +1,8 @@
 import fs from "node:fs";
-import path from "node:path";
 import { parseArgs } from "node:util";
 import { loadEngine, AixInputFile, AixPackResult } from "./wasm";
 import { walkDirectory, WalkedFile } from "./walk";
+import { cmdPreview } from "./preview";
 
 function formatSize(bytes: number): string {
   const KB = 1024;
@@ -181,6 +181,7 @@ function usage() {
       "  aix pack <INPUT_DIR> [-o OUTPUT] [-O] [--opt-level N] [--engine RANGE]",
       "  aix list <AIX_FILE>   (alias: aix ls <AIX_FILE>)",
       "  aix optimize <AIX_FILE> -o <OUTPUT> [--level N]",
+      "  aix preview <INPUT> [--html-out FILE] [--dev] [--launch]",
       "",
     ].join("\n"),
   );
@@ -204,6 +205,14 @@ switch (command) {
     break;
   case "optimize":
     cmdOptimize(args);
+    break;
+  case "preview":
+    cmdPreview(args).catch((err) => {
+      process.stderr.write(
+        `error: ${err instanceof Error ? err.message : err}\n`,
+      );
+      process.exit(1);
+    });
     break;
   default:
     usage();
