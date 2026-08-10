@@ -4,13 +4,19 @@ use encoding_rs::{GB18030, UTF_16BE, UTF_16LE, UTF_8};
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::ImageEncoder;
+use oxc_allocator::Allocator;
+use oxc_codegen::{Codegen, CodegenOptions};
+use oxc_minifier::{CompressOptions, MangleOptions, Minifier, MinifierOptions};
+use oxc_parser::Parser;
+use oxc_span::SourceType;
 use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Write};
+use std::path::Path;
 use zip::write::FileOptions;
 
 pub mod collector;
 
-const UTF8_TEXT_EXTENSIONS: &[&str] = &["json", "js", "ink"];
+const UTF8_TEXT_EXTENSIONS: &[&str] = &["ink"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputFile {
@@ -284,6 +290,10 @@ fn prepare_file(
         return prepare_json(path, &data, optimize.is_some_and(|options| options.json));
     }
 
+    if matches!(extension.as_str(), "js" | "ts") {
+        return prepare_script(path, &data);
+    }
+
     if UTF8_TEXT_EXTENSIONS.contains(&extension.as_str()) {
         let (utf8, converted) = normalize_text_to_utf8(path, &data)?;
         return Ok(PreparedFile {
@@ -338,6 +348,51 @@ fn prepare_json(path: &str, data: &[u8], optimize: bool) -> Result<PreparedFile>
         optimized,
         supported: true,
     })
+}
+
+fn prepare_script(path: &str, data: &[u8]) -> Result<PreparedFile> {
+    let (utf8, converted) = normalize_text_to_utf8(path, data)?;
+    let source_text = String::from_utf8(utf8.clone())
+        .map_err(|_| anyhow!("Failed to decode {} as UTF-8", path))?;
+    let minified = minify_script(path, &source_text)?;
+    let optimized = minified.as_bytes() != utf8.as_slice();
+    Ok(PreparedFile {
+        data: if optimized {
+            minified.into_bytes()
+        } else {
+            utf8
+        },
+        converted_to_utf8: converted,
+        optimized,
+        supported: true,
+    })
+}
+
+fn minify_script(path: &str, source_text: &str) -> Result<String> {
+    let allocator = Allocator::default();
+    let source_type = SourceType::from_path(Path::new(path))
+        .map_err(|_| anyhow!("Failed to minify {}: unsupported script extension", path))?;
+    let parser_return = Parser::new(&allocator, source_text, source_type).parse();
+    if parser_return.panicked {
+        return Err(anyhow!("Failed to minify {}: parser panicked", path));
+    }
+    if let Some(error) = parser_return.diagnostics.first() {
+        return Err(anyhow!("Failed to minify {}: {}", path, error));
+    }
+
+    let mut program = parser_return.program;
+    let minifier = Minifier::new(MinifierOptions {
+        mangle: Some(MangleOptions::default()),
+        compress: Some(CompressOptions::default()),
+    });
+    let result = minifier.minify(&allocator, &mut program);
+
+    let generated = Codegen::new()
+        .with_options(CodegenOptions::minify())
+        .with_scoping(result.scoping)
+        .with_private_member_mappings(result.class_private_mappings)
+        .build(&program);
+    Ok(generated.code)
 }
 
 fn optimize_png(data: &[u8], level: u8) -> Result<Vec<u8>> {
@@ -510,5 +565,101 @@ mod tests {
 
         assert_eq!(normalized, b"const ready = true;");
         assert!(converted);
+    }
+
+    #[test]
+    fn packs_js_and_ts_with_default_minification() {
+        let output = pack(
+            vec![
+                InputFile::new("app.json", br#"{"pages":[]}"#),
+                InputFile::new(
+                    "scripts/app.js",
+                    b"function demo(value) { return value + 1; }\n",
+                ),
+                InputFile::new("scripts/types.ts", b"export const total: number = 1 + 2;\n"),
+            ],
+            PackOptions::new("test-build"),
+        )
+        .unwrap();
+
+        let reader = aix::AixReader::new(output.data).unwrap();
+        let js_output = String::from_utf8(reader.read_file("scripts/app.js").unwrap()).unwrap();
+        assert!(js_output.starts_with("function demo("));
+        assert!(js_output.contains("return "));
+        assert!(!js_output.contains("value"));
+        assert!(js_output.len() < "function demo(value) { return value + 1; }\n".len());
+
+        let ts_output = String::from_utf8(reader.read_file("scripts/types.ts").unwrap()).unwrap();
+        assert_eq!(ts_output, "export const total:number=3;");
+
+        let js_report = output
+            .report
+            .files
+            .iter()
+            .find(|file| file.path == "scripts/app.js")
+            .unwrap();
+        assert_eq!(js_report.status, OptimizeStatus::Optimized);
+        assert!(!js_report.converted_to_utf8);
+
+        let ts_report = output
+            .report
+            .files
+            .iter()
+            .find(|file| file.path == "scripts/types.ts")
+            .unwrap();
+        assert_eq!(ts_report.status, OptimizeStatus::Optimized);
+        assert!(!ts_report.converted_to_utf8);
+    }
+
+    #[test]
+    fn reports_script_parse_errors_with_file_path() {
+        let error = pack(
+            vec![
+                InputFile::new("app.json", br#"{"pages":[]}"#),
+                InputFile::new("scripts/broken.ts", b"export const value: = 1;\n"),
+            ],
+            PackOptions::new("test-build"),
+        )
+        .unwrap_err();
+
+        let message = error.to_string();
+        assert!(message.contains("Failed to minify scripts/broken.ts"));
+        assert!(message.contains("scripts/broken.ts"));
+    }
+
+    #[test]
+    fn collector_and_direct_pack_share_script_minification() {
+        let files = vec![
+            InputFile::new("app.json", br#"{"pages":[]}"#),
+            InputFile::new(
+                "pages\\index.ts",
+                b"export const page = () => ({ ready: true });\n",
+            ),
+        ];
+
+        let direct = pack(
+            vec![
+                InputFile::new("app.json", br#"{"pages":[]}"#),
+                InputFile::new(
+                    "pages/index.ts",
+                    b"export const page = () => ({ ready: true });\n",
+                ),
+            ],
+            PackOptions::new("test-build"),
+        )
+        .unwrap();
+        let collected = collector::pack_source_files(
+            files,
+            &collector::CollectOptions::default(),
+            PackOptions::new("test-build"),
+        )
+        .unwrap();
+
+        let direct_reader = aix::AixReader::new(direct.data).unwrap();
+        let collected_reader = aix::AixReader::new(collected.data).unwrap();
+        assert_eq!(
+            direct_reader.read_file("pages/index.ts").unwrap(),
+            collected_reader.read_file("pages/index.ts").unwrap()
+        );
     }
 }

@@ -27,6 +27,34 @@ function writeOutput(data: Uint8Array, outputPath: string) {
   fs.writeFileSync(outputPath, Buffer.from(data));
 }
 
+function formatPackFileLine(
+  file: AixPackResult["report"]["files"][number],
+): string | null {
+  const lines: string[] = [];
+  if (file.converted_to_utf8) {
+    lines.push(`Converted ${file.path} to UTF-8 for packaging`);
+  }
+  if (file.status === "optimized") {
+    lines.push(
+      `Optimized ${file.path}: ${formatSize(file.original_size)} -> ${formatSize(file.output_size)} (saved ${formatSize(file.saved_bytes)})`,
+    );
+  } else if (file.path !== "VERSION") {
+    lines.push(`Adding file: ${file.path}`);
+  }
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
+function formatPackSummaryLine(
+  report: AixPackResult["report"],
+  optimize: boolean,
+): string | null {
+  if (!optimize || report.original_size <= 0) {
+    return null;
+  }
+  const ratio = (report.saved_bytes / report.original_size) * 100;
+  return `Optimization Summary: Total saved ${formatSize(report.saved_bytes)} (${ratio.toFixed(2)}%)`;
+}
+
 function parseLevel(value: string, flagName: string): 1 | 2 | 3 {
   const level = Number(value);
   if (!Number.isInteger(level) || level < 1 || level > 3) {
@@ -51,7 +79,7 @@ async function cmdPack(args: string[]) {
   }
   const inputDir = positionals[0];
   const outputPath = values.o ?? "bundle.aix";
-  const optimize = values.optimize;
+  const optimize = values.optimize ?? false;
   const optLevel = parseLevel(values["opt-level"], "--opt-level");
   const engine = values.engine;
 
@@ -78,14 +106,9 @@ async function cmdPack(args: string[]) {
   writeOutput(result.data, outputPath);
 
   for (const file of result.report.files) {
-    if (file.converted_to_utf8) {
-      process.stdout.write(`Converted ${file.path} to UTF-8 for packaging\n`);
-    } else if (file.status === "optimized") {
-      process.stdout.write(
-        `Optimized ${file.path}: ${formatSize(file.original_size)} -> ${formatSize(file.output_size)} (saved ${formatSize(file.saved_bytes)})\n`,
-      );
-    } else if (file.path !== "VERSION") {
-      process.stdout.write(`Adding file: ${file.path}\n`);
+    const line = formatPackFileLine(file);
+    if (line) {
+      process.stdout.write(`${line}\n`);
     }
   }
 
@@ -93,12 +116,9 @@ async function cmdPack(args: string[]) {
   process.stdout.write(
     `Package created: ${outputPath} (${formatSize(finalSize)})\n`,
   );
-  if (optimize && result.report.original_size > 0) {
-    const ratio =
-      (result.report.saved_bytes / result.report.original_size) * 100;
-    process.stdout.write(
-      `Optimization Summary: Total saved ${formatSize(result.report.saved_bytes)} (${ratio.toFixed(2)}%)\n`,
-    );
+  const summaryLine = formatPackSummaryLine(result.report, optimize);
+  if (summaryLine) {
+    process.stdout.write(`${summaryLine}\n`);
   }
 }
 

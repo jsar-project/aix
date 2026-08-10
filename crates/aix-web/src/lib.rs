@@ -43,16 +43,8 @@ pub fn pack_aix(
     let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     let optimize = parse_optimize_options(optimize_options)?;
-    let output = aix_pack::pack(
-        files,
-        PackOptions {
-            build_id,
-            engine,
-            optimize,
-            signing_key: None,
-        },
-    )
-    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let output = pack_output(files, build_id, engine, optimize)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
     Ok(AixPackResultWasm {
         data: output.data,
         report: output.report,
@@ -69,17 +61,8 @@ pub fn pack_aix_from_source(
     let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     let optimize = parse_optimize_options(optimize_options)?;
-    let output = aix_pack::collector::pack_source_files(
-        files,
-        &CollectOptions::default(),
-        PackOptions {
-            build_id,
-            engine,
-            optimize,
-            signing_key: None,
-        },
-    )
-    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let output = pack_output_from_source(files, build_id, engine, optimize)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
     Ok(AixPackResultWasm {
         data: output.data,
         report: output.report,
@@ -111,6 +94,41 @@ fn parse_optimize_options(optimize_options: JsValue) -> Result<Option<OptimizeOp
                 .map_err(|error| JsValue::from_str(&error.to_string()))?,
         ))
     }
+}
+
+fn pack_output(
+    files: Vec<InputFile>,
+    build_id: String,
+    engine: String,
+    optimize: Option<OptimizeOptions>,
+) -> Result<aix_pack::PackOutput> {
+    aix_pack::pack(
+        files,
+        PackOptions {
+            build_id,
+            engine,
+            optimize,
+            signing_key: None,
+        },
+    )
+}
+
+fn pack_output_from_source(
+    files: Vec<InputFile>,
+    build_id: String,
+    engine: String,
+    optimize: Option<OptimizeOptions>,
+) -> Result<aix_pack::PackOutput> {
+    aix_pack::collector::pack_source_files(
+        files,
+        &CollectOptions::default(),
+        PackOptions {
+            build_id,
+            engine,
+            optimize,
+            signing_key: None,
+        },
+    )
 }
 
 #[wasm_bindgen]
@@ -151,5 +169,76 @@ impl AixReaderWasm {
 
     pub fn get_tools(&self) -> Result<JsValue, JsValue> {
         to_value(&self.inner.get_tools())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn direct_wasm_pack_defaults_to_script_minification() {
+        let output = pack_output(
+            vec![
+                InputFile {
+                    path: "app.json".into(),
+                    data: br#"{"pages":[]}"#.to_vec(),
+                },
+                InputFile {
+                    path: "scripts/app.js".into(),
+                    data: b"function demo(value) { return value + 1; }\n".to_vec(),
+                },
+            ],
+            "test-build".into(),
+            "*".into(),
+            None,
+        )
+        .unwrap();
+
+        let reader = AixReader::new(output.data).unwrap();
+        let js_output = String::from_utf8(reader.read_file("scripts/app.js").unwrap()).unwrap();
+        assert!(js_output.starts_with("function demo("));
+        assert!(js_output.contains("return "));
+        assert!(!js_output.contains("value"));
+
+        let file_report = output
+            .report
+            .files
+            .iter()
+            .find(|file| file.path == "scripts/app.js")
+            .unwrap();
+        assert_eq!(file_report.status, aix_pack::OptimizeStatus::Optimized);
+    }
+
+    #[test]
+    fn source_wasm_pack_defaults_to_script_minification() {
+        let output = pack_output_from_source(
+            vec![
+                InputFile {
+                    path: "app.json".into(),
+                    data: br#"{"pages":[]}"#.to_vec(),
+                },
+                InputFile {
+                    path: "scripts\\types.ts".into(),
+                    data: b"export const total: number = 1 + 2;\n".to_vec(),
+                },
+            ],
+            "test-build".into(),
+            "*".into(),
+            None,
+        )
+        .unwrap();
+
+        let reader = AixReader::new(output.data).unwrap();
+        let ts_output = String::from_utf8(reader.read_file("scripts/types.ts").unwrap()).unwrap();
+        assert_eq!(ts_output, "export const total:number=3;");
+
+        let file_report = output
+            .report
+            .files
+            .iter()
+            .find(|file| file.path == "scripts/types.ts")
+            .unwrap();
+        assert_eq!(file_report.status, aix_pack::OptimizeStatus::Optimized);
     }
 }

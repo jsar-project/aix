@@ -16,3 +16,4 @@
 
 # OS files
 .DS_Store
+.trae/specs/

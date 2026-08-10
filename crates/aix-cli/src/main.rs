@@ -76,7 +76,6 @@ fn main() -> Result<()> {
                 .clone()
                 .unwrap_or_else(|| PathBuf::from("bundle.aix"));
             pack_directory(input_dir, &output_path, *optimize, *opt_level, engine)?;
-            println!("Successfully packed {:?} to {:?}", input_dir, output_path);
         }
         Commands::List { file } => {
             list_aix(file)?;
@@ -116,40 +115,71 @@ fn pack_directory(
     )?;
     std::fs::write(dst_file, output.data)?;
 
-    for file in &output.report.files {
-        if file.converted_to_utf8 {
-            println!("Converted {} to UTF-8 for packaging", file.path);
-        }
-        if file.status == aix_pack::OptimizeStatus::Optimized {
-            println!(
-                "Optimized {}: {} -> {} (saved {})",
-                file.path,
-                format_size(file.original_size),
-                format_size(file.output_size),
-                format_size(file.saved_bytes)
-            );
-        } else if file.path != "VERSION" {
-            println!("Adding file: {}", file.path);
-        }
+    for line in render_pack_report_lines(&output.report, optimize) {
+        println!("{}", line);
     }
 
     let final_package_size = std::fs::metadata(dst_file)?.len();
     println!(
-        "Package created: {:?} ({})",
-        dst_file,
+        "Package created: {} ({})",
+        dst_file.display(),
         format_size(final_package_size)
     );
 
-    if optimize && output.report.original_size > 0 {
-        let ratio = (output.report.saved_bytes as f64 / output.report.original_size as f64) * 100.0;
-        println!(
-            "Optimization Summary: Total saved {} ({:.2}%)",
-            format_size(output.report.saved_bytes),
-            ratio
-        );
+    Ok(())
+}
+
+fn render_pack_report_lines(report: &aix_pack::OptimizeReport, optimize: bool) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    for file in &report.files {
+        if let Some(line) = render_pack_file_line(file) {
+            lines.push(line);
+        }
     }
 
-    Ok(())
+    if let Some(summary_line) = render_pack_summary_line(report, optimize) {
+        lines.push(summary_line);
+    }
+
+    lines
+}
+
+fn render_pack_file_line(file: &aix_pack::FileOptimizeReport) -> Option<String> {
+    let mut lines = Vec::new();
+    if file.converted_to_utf8 {
+        lines.push(format!("Converted {} to UTF-8 for packaging", file.path));
+    }
+    if file.status == aix_pack::OptimizeStatus::Optimized {
+        lines.push(format!(
+            "Optimized {}: {} -> {} (saved {})",
+            file.path,
+            format_size(file.original_size),
+            format_size(file.output_size),
+            format_size(file.saved_bytes)
+        ));
+    } else if file.path != "VERSION" {
+        lines.push(format!("Adding file: {}", file.path));
+    }
+
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
+}
+
+fn render_pack_summary_line(report: &aix_pack::OptimizeReport, optimize: bool) -> Option<String> {
+    if optimize && report.original_size > 0 {
+        let ratio = (report.saved_bytes as f64 / report.original_size as f64) * 100.0;
+        Some(format!(
+            "Optimization Summary: Total saved {} ({:.2}%)",
+            format_size(report.saved_bytes),
+            ratio
+        ))
+    } else {
+        None
+    }
 }
 
 fn optimize_aix(input: &Path, output: &Path, level: u8) -> Result<()> {
@@ -192,4 +222,96 @@ fn list_aix(file_path: &Path) -> Result<()> {
 
 fn format_size(bytes: u64) -> String {
     aix::format_size(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aix_pack::{FileOptimizeReport, OptimizeReport, OptimizeStatus};
+    use tempfile::tempdir;
+
+    #[test]
+    fn pack_directory_minifies_scripts_without_optimize_flag() {
+        let temp_dir = tempdir().unwrap();
+        let input_dir = temp_dir.path().join("input");
+        let output_path = temp_dir.path().join("bundle.aix");
+        std::fs::create_dir_all(input_dir.join("scripts")).unwrap();
+        std::fs::write(input_dir.join("app.json"), br#"{"pages":[]}"#).unwrap();
+        std::fs::write(
+            input_dir.join("scripts/app.js"),
+            b"function demo(value) { return value + 1; }\n",
+        )
+        .unwrap();
+
+        pack_directory(&input_dir, &output_path, false, 2, "*").unwrap();
+
+        let reader = aix::AixReader::new(std::fs::read(&output_path).unwrap()).unwrap();
+        let js_output = String::from_utf8(reader.read_file("scripts/app.js").unwrap()).unwrap();
+        assert!(js_output.starts_with("function demo("));
+        assert!(js_output.contains("return "));
+        assert!(!js_output.contains("value"));
+    }
+
+    #[test]
+    fn render_pack_report_keeps_script_minification_visible_without_summary() {
+        let report = OptimizeReport {
+            files: vec![
+                FileOptimizeReport {
+                    path: "VERSION".into(),
+                    status: OptimizeStatus::Skipped,
+                    original_size: 36,
+                    output_size: 36,
+                    saved_bytes: 0,
+                    converted_to_utf8: false,
+                },
+                FileOptimizeReport {
+                    path: "scripts/app.js".into(),
+                    status: OptimizeStatus::Optimized,
+                    original_size: 40,
+                    output_size: 28,
+                    saved_bytes: 12,
+                    converted_to_utf8: false,
+                },
+            ],
+            original_size: 76,
+            output_size: 64,
+            saved_bytes: 12,
+        };
+
+        let lines = render_pack_report_lines(&report, false);
+
+        assert_eq!(
+            lines,
+            vec!["Optimized scripts/app.js: 40 bytes -> 28 bytes (saved 12 bytes)".to_string()]
+        );
+    }
+
+    #[test]
+    fn render_pack_report_adds_summary_only_for_optimize_mode() {
+        let report = OptimizeReport {
+            files: vec![FileOptimizeReport {
+                path: "images/cover.png".into(),
+                status: OptimizeStatus::Optimized,
+                original_size: 4096,
+                output_size: 3072,
+                saved_bytes: 1024,
+                converted_to_utf8: false,
+            }],
+            original_size: 4096,
+            output_size: 3072,
+            saved_bytes: 1024,
+        };
+
+        let lines = render_pack_report_lines(&report, true);
+
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            lines[0],
+            "Optimized images/cover.png: 4.00 KB -> 3.00 KB (saved 1.00 KB)"
+        );
+        assert_eq!(
+            lines[1],
+            "Optimization Summary: Total saved 1.00 KB (25.00%)"
+        );
+    }
 }
