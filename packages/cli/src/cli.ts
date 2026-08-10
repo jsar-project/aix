@@ -1,8 +1,17 @@
 import fs from "node:fs";
 import { parseArgs } from "node:util";
-import { loadEngine, AixInputFile, AixPackResult } from "./wasm";
+import {
+  loadEngine,
+  AixInputFile,
+  AixPackResult,
+} from "./wasm";
+import type { PackProgressEvent } from "./wasm";
 import { walkDirectory, WalkedFile } from "./walk";
 import { cmdPreview } from "./preview";
+
+type PackLogger = {
+  writeLine(message: string): void;
+};
 
 function formatSize(bytes: number): string {
   const KB = 1024;
@@ -63,6 +72,27 @@ function parseLevel(value: string, flagName: string): 1 | 2 | 3 {
   return level as 1 | 2 | 3;
 }
 
+function formatLogTime(date: Date): string {
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  const milliseconds = String(date.getMilliseconds()).padStart(3, "0");
+  return `${hours}:${minutes}:${seconds}.${milliseconds}`;
+}
+
+function createPackLogger(logTime: boolean): PackLogger {
+  return {
+    writeLine(message: string) {
+      for (const line of message.split("\n")) {
+        if (logTime) {
+          process.stdout.write(`[${formatLogTime(new Date())}] `);
+        }
+        process.stdout.write(`${line}\n`);
+      }
+    },
+  };
+}
+
 async function cmdPack(args: string[]) {
   const { values, positionals } = parseArgs({
     args,
@@ -72,6 +102,7 @@ async function cmdPack(args: string[]) {
       optimize: { type: "boolean", short: "O" },
       "opt-level": { type: "string", default: "2" },
       engine: { type: "string" },
+      "log-time": { type: "boolean" },
     },
   });
   if (positionals.length !== 1) {
@@ -82,43 +113,98 @@ async function cmdPack(args: string[]) {
   const optimize = values.optimize ?? false;
   const optLevel = parseLevel(values["opt-level"], "--opt-level");
   const engine = values.engine;
+  const logger = createPackLogger(values["log-time"] ?? false);
 
+  logger.writeLine(`Scanning source files in ${inputDir}`);
   const files = walkDirectory(inputDir);
+  logger.writeLine(`Collected ${files.length} source files`);
+  logger.writeLine("Loading WASM engine");
   const engineApi = loadEngine();
+  logger.writeLine("WASM engine ready");
 
   const optimizeArg = optimize
     ? { level: optLevel, json: true, png: true, jpeg: true }
     : null;
 
-  const inputFiles: AixInputFile[] = files.map((f: WalkedFile) => ({
-    path: f.path,
-    data: f.data,
-  }));
-
   const buildId = crypto.randomUUID();
-  const result: AixPackResult = engineApi.pack_aix_from_source(
-    inputFiles,
-    buildId,
-    engine,
-    optimizeArg,
-  );
+  const sourceBuilderCtor = engineApi.AixSourcePackBuilderWasm;
+  const progressPack = engineApi.pack_aix_from_source_with_progress;
+  const handlePackProgress = (event: PackProgressEvent) => {
+    if (event.type === "transferring_files_to_wasm") {
+      logger.writeLine("Transferring files to WASM");
+      return;
+    }
+    if (event.type === "collecting_source_inputs") {
+      logger.writeLine("Collecting source inputs");
+      return;
+    }
+    if (event.type === "resolving_engine") {
+      logger.writeLine("Resolving engine range");
+      return;
+    }
+    if (event.type === "preparing_files") {
+      logger.writeLine("Preparing files for packaging");
+      return;
+    }
+    if (event.type === "finalizing_archive") {
+      logger.writeLine("Finalizing package archive");
+      return;
+    }
+    if (event.type !== "file_finished") {
+      return;
+    }
+    const line = formatPackFileLine(
+      event.report as AixPackResult["report"]["files"][number],
+    );
+    if (line) {
+      logger.writeLine(line);
+    }
+  };
+  if (sourceBuilderCtor) {
+    logger.writeLine("Creating WASM source builder");
+  } else if (progressPack) {
+    logger.writeLine("Invoking WASM packer");
+  }
+  let result: AixPackResult;
+  if (sourceBuilderCtor) {
+    const sourceBuilder = new sourceBuilderCtor();
+    logger.writeLine("Transferring files to WASM incrementally");
+    for (const file of files) {
+      sourceBuilder.add_file(file.path, file.data);
+    }
+    logger.writeLine("Finished transferring files to WASM");
+    result = sourceBuilder.pack_from_source_with_progress(
+      buildId,
+      engine,
+      optimizeArg,
+      handlePackProgress,
+    );
+  } else {
+    const inputFiles: AixInputFile[] = files.map((f: WalkedFile) => ({
+      path: f.path,
+      data: f.data,
+    }));
+    result = progressPack
+      ? progressPack(inputFiles, buildId, engine, optimizeArg, handlePackProgress)
+      : engineApi.pack_aix_from_source(inputFiles, buildId, engine, optimizeArg);
+  }
 
   writeOutput(result.data, outputPath);
 
-  for (const file of result.report.files) {
-    const line = formatPackFileLine(file);
-    if (line) {
-      process.stdout.write(`${line}\n`);
+  if (!sourceBuilderCtor && !progressPack) {
+    for (const file of result.report.files) {
+      const line = formatPackFileLine(file);
+      if (line) {
+        logger.writeLine(line);
+      }
     }
   }
 
   const finalSize = fs.statSync(outputPath).size;
-  process.stdout.write(
-    `Package created: ${outputPath} (${formatSize(finalSize)})\n`,
-  );
+  logger.writeLine(`Package created: ${outputPath} (${formatSize(finalSize)})`);
   const summaryLine = formatPackSummaryLine(result.report, optimize);
   if (summaryLine) {
-    process.stdout.write(`${summaryLine}\n`);
+    logger.writeLine(summaryLine);
   }
 }
 
@@ -178,7 +264,7 @@ function usage() {
       "aix - AIX package manager",
       "",
       "Usage:",
-      "  aix pack <INPUT_DIR> [-o OUTPUT] [-O] [--opt-level N] [--engine RANGE]",
+      "  aix pack <INPUT_DIR> [-o OUTPUT] [-O] [--opt-level N] [--engine RANGE] [--log-time]",
       "  aix list <AIX_FILE>   (alias: aix ls <AIX_FILE>)",
       "  aix optimize <AIX_FILE> -o <OUTPUT> [--level N]",
       "  aix preview <INPUT> [--html-out FILE] [--dev] [--launch]",

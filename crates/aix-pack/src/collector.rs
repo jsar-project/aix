@@ -17,7 +17,10 @@
 //! `Vec<InputFile>` can continue to call [`crate::pack`] directly. This module
 //! is only for callers that want shared "collect then pack" behavior.
 
-use crate::{normalize_text_to_utf8, pack, InputFile, PackOptions, PackOutput};
+use crate::{
+    normalize_text_to_utf8, pack, pack_with_progress, InputFile, PackOptions, PackOutput,
+    PackProgressEvent,
+};
 use anyhow::{anyhow, Context, Result};
 use ignore::gitignore::GitignoreBuilder;
 use serde::{Deserialize, Serialize};
@@ -110,6 +113,23 @@ pub fn pack_source_files(
     pack_options: PackOptions<'_>,
 ) -> Result<PackOutput> {
     pack(collect_inputs(files, collect_options)?, pack_options)
+}
+
+pub fn pack_source_files_with_progress<F>(
+    files: Vec<InputFile>,
+    collect_options: &CollectOptions,
+    pack_options: PackOptions<'_>,
+    mut progress: F,
+) -> Result<PackOutput>
+where
+    F: FnMut(PackProgressEvent) -> Result<()>,
+{
+    progress(PackProgressEvent::CollectingSourceInputs)?;
+    pack_with_progress(
+        collect_inputs(files, collect_options)?,
+        pack_options,
+        progress,
+    )
 }
 
 /// Reads a native directory tree into source-side [`InputFile`] values.

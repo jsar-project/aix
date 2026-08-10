@@ -1,14 +1,14 @@
 /// <reference types="node" />
 
-import fs from 'fs';
-import path from 'path';
+import fs from "fs";
+import path from "path";
 
 export type WalkedFile = { path: string; data: Uint8Array };
 
 export function walkDirectory(dir: string): WalkedFile[] {
   const stat = fs.statSync(dir);
   if (!stat.isDirectory()) {
-    throw new Error('Input path is not a directory');
+    throw new Error("Input path is not a directory");
   }
   const rootDir = path.resolve(dir);
   const results: WalkedFile[] = [];
@@ -19,7 +19,7 @@ export function walkDirectory(dir: string): WalkedFile[] {
       if (entry.isDirectory()) {
         visit(abs);
       } else if (entry.isFile()) {
-        const rel = path.relative(rootDir, abs).split(path.sep).join('/');
+        const rel = path.relative(rootDir, abs).split(path.sep).join("/");
         results.push({ path: rel, data: new Uint8Array(fs.readFileSync(abs)) });
       }
     }

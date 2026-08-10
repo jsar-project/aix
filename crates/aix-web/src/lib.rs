@@ -1,6 +1,7 @@
 use aix::AixReader;
 use aix_pack::{collector::CollectOptions, InputFile, OptimizeOptions, PackOptions};
 use anyhow::Result;
+use js_sys::Function;
 use wasm_bindgen::prelude::*;
 
 fn to_value<T: serde::Serialize + ?Sized>(value: &T) -> Result<JsValue, JsValue> {
@@ -21,6 +22,11 @@ pub struct AixPackResultWasm {
 }
 
 #[wasm_bindgen]
+pub struct AixSourcePackBuilderWasm {
+    files: Vec<InputFile>,
+}
+
+#[wasm_bindgen]
 impl AixPackResultWasm {
     #[wasm_bindgen(getter)]
     pub fn data(&self) -> js_sys::Uint8Array {
@@ -30,6 +36,48 @@ impl AixPackResultWasm {
     #[wasm_bindgen(getter)]
     pub fn report(&self) -> Result<JsValue, JsValue> {
         to_value(&self.report)
+    }
+}
+
+#[wasm_bindgen]
+impl AixSourcePackBuilderWasm {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> AixSourcePackBuilderWasm {
+        AixSourcePackBuilderWasm { files: Vec::new() }
+    }
+
+    pub fn add_file(&mut self, path: String, data: Vec<u8>) {
+        self.files.push(InputFile { path, data });
+    }
+
+    pub fn pack_from_source_with_progress(
+        &mut self,
+        build_id: String,
+        engine: Option<String>,
+        optimize_options: JsValue,
+        progress: Function,
+    ) -> Result<AixPackResultWasm, JsValue> {
+        let optimize = parse_optimize_options(optimize_options)?;
+        let files = std::mem::take(&mut self.files);
+        let output = aix_pack::collector::pack_source_files_with_progress(
+            files,
+            &CollectOptions::default(),
+            PackOptions {
+                build_id,
+                engine,
+                optimize,
+                signing_key: None,
+            },
+            |event| {
+                emit_progress_event(&progress, &event)
+                    .map_err(|error| anyhow::anyhow!("{:?}", error))
+            },
+        )
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        Ok(AixPackResultWasm {
+            data: output.data,
+            report: output.report,
+        })
     }
 }
 
@@ -67,6 +115,52 @@ pub fn pack_aix_from_source(
         data: output.data,
         report: output.report,
     })
+}
+
+#[wasm_bindgen]
+pub fn pack_aix_from_source_with_progress(
+    files: JsValue,
+    build_id: String,
+    engine: Option<String>,
+    optimize_options: JsValue,
+    progress: Function,
+) -> Result<AixPackResultWasm, JsValue> {
+    emit_progress_event(
+        &progress,
+        &aix_pack::PackProgressEvent::TransferringFilesToWasm,
+    )?;
+    let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let optimize = parse_optimize_options(optimize_options)?;
+    let output = aix_pack::collector::pack_source_files_with_progress(
+        files,
+        &CollectOptions::default(),
+        PackOptions {
+            build_id,
+            engine,
+            optimize,
+            signing_key: None,
+        },
+        |event| {
+            emit_progress_event(&progress, &event).map_err(|error| anyhow::anyhow!("{:?}", error))
+        },
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    Ok(AixPackResultWasm {
+        data: output.data,
+        report: output.report,
+    })
+}
+
+fn emit_progress_event(
+    progress: &Function,
+    event: &aix_pack::PackProgressEvent,
+) -> std::result::Result<(), JsValue> {
+    let value = to_value(event)?;
+    progress
+        .call1(&JsValue::NULL, &value)
+        .map(|_| ())
+        .map_err(|error| JsValue::from_str(&format!("{:?}", error)))
 }
 
 #[wasm_bindgen]

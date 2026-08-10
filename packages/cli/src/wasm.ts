@@ -5,6 +5,7 @@ import path from 'node:path';
 
 type WasmEngine = {
   AixReaderWasm: new (data: Uint8Array) => AixReaderInstance;
+  AixSourcePackBuilderWasm?: new () => AixSourcePackBuilderInstance;
   pack_aix: (
     files: AixInputFile[],
     buildId: string,
@@ -16,6 +17,13 @@ type WasmEngine = {
     buildId: string,
     engine: string | undefined,
     optimize: unknown,
+  ) => AixPackResult;
+  pack_aix_from_source_with_progress?: (
+    files: AixInputFile[],
+    buildId: string,
+    engine: string | undefined,
+    optimize: unknown,
+    progress: (event: PackProgressEvent) => void,
   ) => AixPackResult;
   optimize_aix: (data: Uint8Array, options: unknown) => AixPackResult;
 };
@@ -32,6 +40,16 @@ export type AixReaderInstance = {
   supports_engine: (version: string) => boolean;
   get_pages: () => unknown[];
   get_tools: () => unknown[];
+};
+
+export type AixSourcePackBuilderInstance = {
+  add_file: (path: string, data: Uint8Array) => void;
+  pack_from_source_with_progress: (
+    buildId: string,
+    engine: string | undefined,
+    optimize: unknown,
+    progress: (event: PackProgressEvent) => void,
+  ) => AixPackResult;
 };
 
 type FileOptimizeReport = {
@@ -51,6 +69,13 @@ export type OptimizeReport = {
 };
 
 export type AixPackResult = { data: Uint8Array; report: OptimizeReport };
+export type PackProgressEvent =
+  | { type: 'transferring_files_to_wasm' }
+  | { type: 'collecting_source_inputs' }
+  | { type: 'resolving_engine' }
+  | { type: 'preparing_files' }
+  | { type: 'file_finished'; report: OptimizeReport['files'][number] }
+  | { type: 'finalizing_archive' };
 
 let cached: WasmEngine | undefined;
 

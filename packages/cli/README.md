@@ -29,6 +29,7 @@ aix pack ./my-agent -o my-app.aix
 aix pack ./my-agent --optimize       # adds PNG/JPEG + JSON optimization
 aix pack ./my-agent -O --opt-level 3 # optimization level 1-3
 aix pack ./my-agent --engine '^0.14.0'
+aix pack ./my-agent --log-time       # prefix each pack log line with a local timestamp
 ```
 
 If `--engine` is omitted, the packer falls back to `app.json.engine`, then to
@@ -46,6 +47,10 @@ When `.js` or `.ts` files are packed:
 
 `--opt-level` only affects the JSON/PNG/JPEG optimization pipeline enabled by
 `--optimize`. It does not change the default JS/TS minification behavior.
+
+Use `--log-time` when you want to diagnose where `aix pack` is spending time.
+This prefixes each pack log line with a local timestamp so gaps are easy to
+spot during scanning, packing, and archive finalization.
 
 ### `aix list <AIX_FILE>`
 
