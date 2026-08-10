@@ -249,7 +249,7 @@ mod tests {
         )
         .unwrap();
 
-        pack_directory(&input_dir, &output_path, false, 2, "*").unwrap();
+        pack_directory(&input_dir, &output_path, false, 2, Some("*")).unwrap();
 
         let reader = aix::AixReader::new(std::fs::read(&output_path).unwrap()).unwrap();
         let js_output = String::from_utf8(reader.read_file("scripts/app.js").unwrap()).unwrap();
