@@ -26,6 +26,12 @@ pub struct AixSourcePackBuilderWasm {
     files: Vec<InputFile>,
 }
 
+impl Default for AixSourcePackBuilderWasm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[wasm_bindgen]
 impl AixPackResultWasm {
     #[wasm_bindgen(getter)]
