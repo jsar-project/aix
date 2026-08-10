@@ -124,6 +124,10 @@ fn main() -> anyhow::Result<()> {
     println!("title = {:?}", reader.get_title());
     println!("pages = {:?}", reader.get_pages());
     println!("tools = {:?}", reader.get_tools());
+    println!(
+        "supports engine 0.14.2 = {}",
+        reader.supports_engine("0.14.2")?
+    );
 
     Ok(())
 }
@@ -142,9 +146,49 @@ cargo install aiui-aix-cli
 ```
 
 ```bash
-aix pack ./my-agent -o bundle.aix
+aix pack ./my-agent -o bundle.aix --engine '^0.14.0'
 aix list ./bundle.aix
 ```
+
+如果没有显式传入 `--engine`，打包器会依次回退到 `app.json.engine` 和
+`*`，并把最终解析出的范围写入 `META-INF/aix/manifest.json`。对于已经打
+包好的 artifact，读取侧会把 manifest 作为 engine 判断的唯一来源。像
+`0.14.0` 这样的完整版本表示精确匹配，`>=0.14.0`、`^0.14.0` 这样的范围
+也都支持。
+
+### 在 Rust 中签名和校验
+
+下面的例子展示了如何在打包时写入 engine 范围、为包签名，并在读取时校验
+签名与运行时兼容性：
+
+```rust
+use aix::crypto::{PrivateKey, PublicKey};
+use aix_pack::{pack, InputFile, PackOptions};
+use rand_core::OsRng;
+
+fn main() -> anyhow::Result<()> {
+    let private_key = PrivateKey::generate(&mut OsRng);
+    let mut options = PackOptions::new("build-1");
+    options.engine = Some("^0.14.0".into());
+    options.signing_key = Some(&private_key);
+
+    let output = pack(
+        vec![InputFile::new("app.json", br#"{"pages":[]}"#)],
+        options,
+    )?;
+
+    let trusted_key: PublicKey = private_key.public_key();
+    let reader = AixReader::new(output.data)?;
+    let report = reader.verify_signature(&trusted_key)?;
+
+    assert!(reader.supports_engine("0.14.2")?);
+    println!("verified package {}", report.package_id);
+    Ok(())
+}
+```
+
+对于已打包 artifact，`supports_engine()` 读取的是
+`META-INF/aix/manifest.json` 中已经解析好的 engine 范围。
 
 ### 在浏览器中读取 AIX
 
@@ -156,8 +200,12 @@ async function inspect(file: File) {
   console.log(aix.getTitle());
   console.log(aix.getPages());
   console.log(aix.getTools());
+  console.log(aix.supportsEngine("0.14.2"));
 }
 ```
+
+对于已打包 artifact，`supportsEngine()` 同样会从
+`META-INF/aix/manifest.json` 读取 engine 范围。
 
 ## 文档站
 
