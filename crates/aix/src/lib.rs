@@ -31,42 +31,74 @@ pub mod crypto;
 pub mod xml;
 pub use analyzer::{PageAnalyzer, PageConstraint};
 
+/// Describes a single archive entry inside an `.aix` package.
+///
+/// This metadata is collected from the ZIP central directory and is returned by
+/// [`AixReader::list`]. It does not require extracting the file contents.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AixEntry {
+    /// Normalized archive path of the entry.
     pub name: String,
+    /// Uncompressed size of the entry in bytes.
     pub size: u64,
+    /// Compressed size of the entry in bytes as stored in the ZIP archive.
     pub compressed_size: u64,
 }
 
+/// Summarizes a page declared by `app.json`.
+///
+/// The reader derives this structure from the package page list and page-level
+/// metadata files, including inferred layout information from templates and
+/// styles.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PageInfo {
+    /// Logical page path from `app.json`, such as `pages/index/index`.
     pub name: String,
+    /// Navigation title declared by the page or inherited from page metadata.
     pub title: Option<String>,
+    /// Human-readable description used for tool derivation when available.
     pub description: Option<String>,
+    /// JSON Schema fragment describing the page input payload.
     pub data_schema: serde_json::Value,
+    /// Inferred page layout constraints used by clients and tool surfaces.
     pub size: PageConstraint,
 }
 
+/// Represents an OpenAI-style tool derived from a page definition.
+///
+/// Tools are produced by [`AixReader::get_tools`] and map page metadata into a
+/// structure that is convenient for agent runtimes.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Tool {
+    /// Tool kind. This crate currently emits `"function"`.
     pub r#type: String,
+    /// Where the runtime should open the destination page.
     pub target: ToolTarget,
+    /// Recommended layout for rendering the target page.
     pub layout: PageConstraint,
+    /// Function-like metadata exposed to the runtime.
     pub function: FunctionDefinition,
 }
 
+/// Controls how a runtime should open a page-backed tool target.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum ToolTarget {
+    /// Open the page in the current runtime context.
     #[serde(rename = "_current", alias = "current")]
     Current,
+    /// Open the page in a fresh or blank runtime context.
     #[serde(rename = "_blank", alias = "blank")]
     Blank,
 }
 
+/// Describes the callable portion of a derived tool.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FunctionDefinition {
+    /// Stable tool name, usually matching the page path.
     pub name: String,
+    /// Optional natural-language description for the tool.
     pub description: Option<String>,
+    /// JSON Schema describing accepted parameters.
     pub parameters: serde_json::Value,
 }
 
@@ -95,12 +127,71 @@ struct PageSchema {
     pub data: Option<serde_json::Value>,
 }
 
+/// Reads and inspects `.aix` packages from an in-memory byte buffer.
+///
+/// `AixReader` performs ZIP traversal, entry extraction, manifest access,
+/// signature verification, page analysis, and tool derivation without requiring
+/// filesystem access.
 pub struct AixReader {
     entries: Vec<AixEntry>,
     data: Vec<u8>,
 }
 
+/// Checks whether a runtime engine version satisfies a package engine range.
+///
+/// This is a lightweight convenience wrapper around the engine range utilities
+/// in [`crypto`].
+///
+/// # Parameters
+///
+/// - `package_engine`: The semver requirement declared by the package.
+/// - `runtime_engine`: The concrete engine version provided by the runtime.
+///
+/// # Returns
+///
+/// Returns `Ok(true)` when `runtime_engine` matches `package_engine`, `Ok(false)`
+/// when it does not, and an error when either input is not a valid version or
+/// range.
+///
+/// # Errors
+///
+/// Returns an error if the package range or runtime version cannot be parsed.
+///
+/// # Examples
+///
+/// ```rust
+/// use aiui_aix::satisfy;
+///
+/// assert!(satisfy("^0.14.0", "0.14.2")?);
+/// assert!(!satisfy("^0.14.0", "0.15.0")?);
+///
+/// # Ok::<(), anyhow::Error>(())
+/// ```
+pub fn satisfy(package_engine: &str, runtime_engine: &str) -> Result<bool> {
+    crypto::engine_satisfies(package_engine, runtime_engine)
+        .map_err(|error| anyhow!("Invalid engine version or range: {}", error))
+}
+
 impl AixReader {
+    /// Creates a reader from the raw bytes of an `.aix` archive.
+    ///
+    /// The constructor scans the ZIP central directory, normalizes entry paths,
+    /// and rejects duplicate names before exposing the package through the
+    /// reader API.
+    ///
+    /// # Parameters
+    ///
+    /// - `data`: Full package bytes in ZIP format.
+    ///
+    /// # Returns
+    ///
+    /// Returns an initialized reader that can inspect and extract package
+    /// contents from memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the input is not a valid ZIP archive, contains an
+    /// invalid path, or includes duplicate normalized entry names.
     pub fn new(data: Vec<u8>) -> Result<Self> {
         let mut entries = Vec::new();
         let archive = ZipArchive::from_slice(data.as_slice())
@@ -129,10 +220,35 @@ impl AixReader {
         Ok(Self { entries, data })
     }
 
+    /// Returns the normalized archive entries contained in the package.
+    ///
+    /// # Returns
+    ///
+    /// Returns a borrowed slice describing every entry discovered when the
+    /// reader was constructed.
     pub fn list(&self) -> &[AixEntry] {
         &self.entries
     }
 
+    /// Reads and verifies a single file from the package.
+    ///
+    /// This method re-opens the in-memory ZIP archive, locates the named entry,
+    /// decompresses it when needed, and verifies CRC and uncompressed size
+    /// before returning the bytes.
+    ///
+    /// # Parameters
+    ///
+    /// - `name`: Normalized archive path of the file to read.
+    ///
+    /// # Returns
+    ///
+    /// Returns the extracted file contents as a new byte vector.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be read, the path is invalid, the
+    /// file is missing, the compression method is unsupported, extraction fails,
+    /// or ZIP integrity verification does not match the stored metadata.
     pub fn read_file(&self, name: &str) -> Result<Vec<u8>> {
         let archive = ZipArchive::from_slice(self.data.as_slice())
             .map_err(|error| anyhow!("Failed to read zip: {:?}", error))?;
@@ -176,13 +292,37 @@ impl AixReader {
         Err(anyhow!("File not found: {}", name))
     }
 
+    /// Reads the package build identifier from the `VERSION` entry.
+    ///
+    /// # Returns
+    ///
+    /// Returns the UTF-8 version string when the entry exists and contains
+    /// valid UTF-8. Returns `None` for missing or invalid data.
     pub fn get_version(&self) -> Option<String> {
         self.read_file("VERSION")
             .ok()
             .and_then(|v| String::from_utf8(v).ok())
     }
 
-    /// Reads the package manifest. Older packages may not contain one.
+    fn read_app_config(&self) -> Result<AppConfig> {
+        let app_json = self.read_file("app.json")?;
+        serde_json::from_slice(&app_json).map_err(|error| anyhow!("Invalid app.json: {}", error))
+    }
+
+    /// Reads the package manifest from `META-INF/aix/manifest.json`.
+    ///
+    /// Older or unsigned packages may not contain a manifest, so this method
+    /// returns `Ok(None)` in that case.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Some(...))` when the manifest exists and can be parsed,
+    /// `Ok(None)` when the entry is absent, and an error when the manifest entry
+    /// exists but is invalid.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the manifest file cannot be read or parsed as JSON.
     pub fn get_manifest(&self) -> Result<Option<crypto::PackageManifest>> {
         if !self
             .entries
@@ -198,16 +338,60 @@ impl AixReader {
             .map_err(|error| anyhow!("Invalid AIX manifest: {}", error))
     }
 
-    /// Returns whether this package supports the supplied engine version.
-    pub fn supports_engine(&self, current_version: &str) -> Result<bool> {
-        let manifest = self
-            .get_manifest()?
-            .ok_or_else(|| anyhow!("AIX manifest not found"))?;
-        crypto::engine_satisfies(&manifest.engine, current_version)
-            .map_err(|error| anyhow!("Invalid engine version or range: {}", error))
+    /// Returns the engine range declared by this package manifest.
+    ///
+    /// # Returns
+    ///
+    /// Returns the manifest `engine` field when a readable manifest is present.
+    /// Returns `None` when the manifest is missing or invalid.
+    pub fn get_engine(&self) -> Option<String> {
+        self.get_manifest()
+            .ok()
+            .and_then(|manifest| manifest.map(|manifest| manifest.engine))
     }
 
-    /// Verifies the manifest signature and every package entry against a trusted key.
+    /// Checks whether the package manifest accepts the supplied runtime engine.
+    ///
+    /// # Parameters
+    ///
+    /// - `current_version`: Concrete runtime engine version to test.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(true)` when the runtime version satisfies the manifest
+    /// engine range and `Ok(false)` when it does not.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the package manifest is missing or if either the
+    /// declared range or supplied version is invalid.
+    pub fn supports_engine(&self, current_version: &str) -> Result<bool> {
+        let engine = self
+            .get_engine()
+            .ok_or_else(|| anyhow!("AIX manifest not found"))?;
+        satisfy(&engine, current_version)
+    }
+
+    /// Verifies the package manifest signature and every signed package entry.
+    ///
+    /// The verification flow checks the trusted key identity, validates the
+    /// signed manifest, confirms manifest ordering rules, re-hashes every signed
+    /// payload entry, ensures no unsigned non-metadata entries are present, and
+    /// checks that manifest metadata matches the package contents.
+    ///
+    /// # Parameters
+    ///
+    /// - `trusted_key`: Public key that the caller trusts for this package.
+    ///
+    /// # Returns
+    ///
+    /// Returns a summary report describing the verified package metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the manifest, signature, or package contents are
+    /// missing, malformed, unsigned, out of order, hashed incorrectly, or
+    /// signed by a different key.
     pub fn verify_signature(
         &self,
         trusted_key: &crypto::PublicKey,
@@ -284,62 +468,75 @@ impl AixReader {
         })
     }
 
+    /// Returns the application title from `app.json`.
+    ///
+    /// # Returns
+    ///
+    /// Returns the `window.navigationBarTitleText` value when `app.json` exists,
+    /// parses correctly, and declares a title. Returns `None` otherwise.
     pub fn get_title(&self) -> Option<String> {
-        let app_json = self.read_file("app.json").ok()?;
-        let config: AppConfig = serde_json::from_slice(&app_json).ok()?;
+        let config = self.read_app_config().ok()?;
         config.window.and_then(|w| w.navigation_bar_title_text)
     }
 
+    /// Resolves every page declared in `app.json` into page metadata.
+    ///
+    /// This method loads the page list, extracts titles and schema information
+    /// from either `.ink` single-file components or traditional page JSON, and
+    /// derives layout constraints from templates and styles.
+    ///
+    /// # Returns
+    ///
+    /// Returns one [`PageInfo`] per page declared in `app.json`. If the package
+    /// is missing or has an invalid `app.json`, an empty vector is returned.
     pub fn get_pages(&self) -> Vec<PageInfo> {
         let mut pages = Vec::new();
-        if let Ok(app_json) = self.read_file("app.json") {
-            if let Ok(config) = serde_json::from_slice::<AppConfig>(&app_json) {
-                for path in config.pages {
-                    let mut title = None;
-                    let mut description = None;
-                    let mut data_schema = serde_json::json!({});
-                    let mut size = PageConstraint::default();
+        if let Ok(config) = self.read_app_config() {
+            for path in config.pages {
+                let mut title = None;
+                let mut description = None;
+                let mut data_schema = serde_json::json!({});
+                let mut size = PageConstraint::default();
 
-                    // Check if it's an SFC (.ink file) first
-                    let ink_path = format!("{}.ink", path);
-                    if let Ok(ink_content) = self
-                        .read_file(&ink_path)
-                        .and_then(|b| String::from_utf8(b).map_err(|e| anyhow::anyhow!(e)))
-                    {
-                        // Extract config from <script def> and template/style for analyzer
-                        if let Ok(nodes) = xml::parse_sfc(&ink_content) {
-                            for node in &nodes {
-                                if let xml::Node::Element {
-                                    name,
-                                    attributes,
-                                    children,
-                                } = node
-                                {
-                                    if name == "script" && attributes.contains_key("def") {
-                                        if let Some(xml::Node::Text(text)) = children.first() {
-                                            if let Ok(page_config) =
-                                                serde_json::from_str::<PageConfig>(text)
-                                            {
-                                                title = page_config.navigation_bar_title_text;
-                                                description = page_config.description;
-                                                match page_config.schema {
-                                                    Some(schema) => match schema.data {
-                                                        Some(data) => {
-                                                            data_schema = data;
-                                                        }
-                                                        None => {
-                                                            aix_warn(&format!(
-                                                                "Missing 'data' in schema for page: {}",
-                                                                path
-                                                            ));
-                                                        }
-                                                    },
+                // Check if it's an SFC (.ink file) first
+                let ink_path = format!("{}.ink", path);
+                if let Ok(ink_content) = self
+                    .read_file(&ink_path)
+                    .and_then(|b| String::from_utf8(b).map_err(|e| anyhow::anyhow!(e)))
+                {
+                    // Extract config from <script def> and template/style for analyzer
+                    if let Ok(nodes) = xml::parse_sfc(&ink_content) {
+                        for node in &nodes {
+                            if let xml::Node::Element {
+                                name,
+                                attributes,
+                                children,
+                            } = node
+                            {
+                                if name == "script" && attributes.contains_key("def") {
+                                    if let Some(xml::Node::Text(text)) = children.first() {
+                                        if let Ok(page_config) =
+                                            serde_json::from_str::<PageConfig>(text)
+                                        {
+                                            title = page_config.navigation_bar_title_text;
+                                            description = page_config.description;
+                                            match page_config.schema {
+                                                Some(schema) => match schema.data {
+                                                    Some(data) => {
+                                                        data_schema = data;
+                                                    }
                                                     None => {
                                                         aix_warn(&format!(
-                                                            "Missing 'schema' for page: {}",
+                                                            "Missing 'data' in schema for page: {}",
                                                             path
                                                         ));
                                                     }
+                                                },
+                                                None => {
+                                                    aix_warn(&format!(
+                                                        "Missing 'schema' for page: {}",
+                                                        path
+                                                    ));
                                                 }
                                             }
                                         }
@@ -347,65 +544,73 @@ impl AixReader {
                                 }
                             }
                         }
+                    }
 
-                        size = PageAnalyzer::analyze_sfc(&ink_content);
-                    } else {
-                        // Fallback to traditional files
-                        let json_path = format!("{}.json", path);
-                        if let Ok(page_json) = self.read_file(&json_path) {
-                            if let Ok(page_config) =
-                                serde_json::from_slice::<PageConfig>(&page_json)
-                            {
-                                title = page_config.navigation_bar_title_text;
-                                description = page_config.description;
-                                match page_config.schema {
-                                    Some(schema) => match schema.data {
-                                        Some(data) => {
-                                            data_schema = data;
-                                        }
-                                        None => {
-                                            aix_warn(&format!(
-                                                "Missing 'data' in schema for page: {}",
-                                                path
-                                            ));
-                                        }
-                                    },
-                                    None => {
-                                        aix_warn(&format!("Missing 'schema' for page: {}", path));
+                    size = PageAnalyzer::analyze_sfc(&ink_content);
+                } else {
+                    // Fallback to traditional files
+                    let json_path = format!("{}.json", path);
+                    if let Ok(page_json) = self.read_file(&json_path) {
+                        if let Ok(page_config) = serde_json::from_slice::<PageConfig>(&page_json) {
+                            title = page_config.navigation_bar_title_text;
+                            description = page_config.description;
+                            match page_config.schema {
+                                Some(schema) => match schema.data {
+                                    Some(data) => {
+                                        data_schema = data;
                                     }
+                                    None => {
+                                        aix_warn(&format!(
+                                            "Missing 'data' in schema for page: {}",
+                                            path
+                                        ));
+                                    }
+                                },
+                                None => {
+                                    aix_warn(&format!("Missing 'schema' for page: {}", path));
                                 }
                             }
                         }
-
-                        // Analyze page size
-                        let wxml = self
-                            .read_file(&format!("{}.wxml", path))
-                            .ok()
-                            .and_then(|b| String::from_utf8(b).ok());
-                        let wcss = self
-                            .read_file(&format!("{}.wcss", path))
-                            .or_else(|_| self.read_file(&format!("{}.wxss", path)))
-                            .ok()
-                            .and_then(|b| String::from_utf8(b).ok());
-
-                        if wxml.is_some() {
-                            size = PageAnalyzer::analyze(wxml.as_deref(), wcss.as_deref());
-                        }
                     }
 
-                    pages.push(PageInfo {
-                        name: path,
-                        title,
-                        description,
-                        data_schema,
-                        size,
-                    });
+                    // Analyze page size
+                    let wxml = self
+                        .read_file(&format!("{}.wxml", path))
+                        .ok()
+                        .and_then(|b| String::from_utf8(b).ok());
+                    let wcss = self
+                        .read_file(&format!("{}.wcss", path))
+                        .or_else(|_| self.read_file(&format!("{}.wxss", path)))
+                        .ok()
+                        .and_then(|b| String::from_utf8(b).ok());
+
+                    if wxml.is_some() {
+                        size = PageAnalyzer::analyze(wxml.as_deref(), wcss.as_deref());
+                    }
                 }
+
+                pages.push(PageInfo {
+                    name: path,
+                    title,
+                    description,
+                    data_schema,
+                    size,
+                });
             }
         }
         pages
     }
 
+    /// Derives agent-facing tools from the package page list.
+    ///
+    /// The first page without parameters is exposed as [`ToolTarget::Blank`],
+    /// while every other page is emitted as [`ToolTarget::Current`]. Parameter
+    /// schemas and layout hints are taken from [`Self::get_pages`].
+    ///
+    /// # Returns
+    ///
+    /// Returns a list of OpenAI-style tool definitions derived from package
+    /// pages.
     pub fn get_tools(&self) -> Vec<Tool> {
         let pages = self.get_pages();
         let mut tools = Vec::new();
@@ -473,6 +678,16 @@ fn page_has_parameters(data_schema: &serde_json::Value) -> bool {
     !is_empty_object_schema
 }
 
+/// Formats a byte count using human-readable binary units.
+///
+/// # Parameters
+///
+/// - `bytes`: Raw byte count to display.
+///
+/// # Returns
+///
+/// Returns a string formatted in bytes, KB, MB, or GB with two decimal places
+/// for values larger than one kilobyte.
 pub fn format_size(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
@@ -533,6 +748,39 @@ mod tests {
             zip.start_file("pages/index/index.wxss", options).unwrap();
             zip.write_all(br#".container { width: 100px; height: 100px; }"#)
                 .unwrap();
+
+            zip.finish().unwrap();
+        }
+        buf
+    }
+
+    fn create_engine_test_aix(app_json: &[u8], manifest_engine: Option<&str>) -> Vec<u8> {
+        let mut buf = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(Cursor::new(&mut buf));
+            let options = FileOptions::default();
+
+            zip.start_file("app.json", options).unwrap();
+            zip.write_all(app_json).unwrap();
+
+            if let Some(engine) = manifest_engine {
+                zip.start_file("VERSION", options).unwrap();
+                zip.write_all(b"test-build").unwrap();
+
+                let manifest = crypto::PackageManifest {
+                    format: "aix".into(),
+                    version: "test-build".into(),
+                    engine: engine.into(),
+                    algorithm: "ed25519".into(),
+                    digest: "sha256".into(),
+                    key_id: String::new(),
+                    package_id: String::new(),
+                    entries: Vec::new(),
+                };
+                zip.start_file(crypto::MANIFEST_PATH, options).unwrap();
+                zip.write_all(&serde_json::to_vec(&manifest).unwrap())
+                    .unwrap();
+            }
 
             zip.finish().unwrap();
         }
@@ -613,6 +861,47 @@ mod tests {
         let tool_json = serde_json::to_value(&tools[0]).unwrap();
         assert_eq!(tool_json["target"], "_current");
         assert_eq!(tool_json["function"]["parameters"]["type"], "object");
+    }
+
+    #[test]
+    fn satisfy_checks_runtime_against_engine_range() {
+        assert!(satisfy("^0.14.0", "0.14.9").unwrap());
+        assert!(!satisfy("^0.14.0", "0.15.0").unwrap());
+    }
+
+    #[test]
+    fn supports_engine_reads_manifest_engine() {
+        let reader = AixReader::new(create_engine_test_aix(
+            br#"{"pages":[],"engine":"^0.14.0"}"#,
+            Some("^0.14.0"),
+        ))
+        .unwrap();
+
+        assert_eq!(reader.get_engine().as_deref(), Some("^0.14.0"));
+        assert!(reader.supports_engine("0.14.2").unwrap());
+        assert!(!reader.supports_engine("0.15.0").unwrap());
+    }
+
+    #[test]
+    fn supports_engine_ignores_app_json_engine_without_manifest() {
+        let reader = AixReader::new(create_engine_test_aix(
+            br#"{"pages":[],"engine":"^0.14.0"}"#,
+            None,
+        ))
+        .unwrap();
+
+        assert!(reader.get_engine().is_none());
+        assert_eq!(
+            reader.supports_engine("0.14.2").unwrap_err().to_string(),
+            "AIX manifest not found"
+        );
+    }
+
+    #[test]
+    fn supports_engine_returns_none_without_manifest() {
+        let reader = AixReader::new(create_test_aix()).unwrap();
+
+        assert!(reader.get_engine().is_none());
     }
 
     fn create_test_sfc_aix() -> Vec<u8> {

@@ -57,7 +57,7 @@ Use `--engine` to declare which AIX engine versions may run the package:
 aix pack ./my-agent --engine '^0.14.0'
 ```
 
-The range defaults to `*`. Common forms include:
+The effective range defaults to `*`. Common forms include:
 
 ```text
 *           any engine version
@@ -66,7 +66,10 @@ The range defaults to `*`. Common forms include:
 ^0.14.0     versions compatible with 0.14.0
 ```
 
-The range is validated during packing and saved as `manifest.engine`.
+The range is validated during packing and saved to
+`META-INF/aix/manifest.json`. If `--engine` is omitted, the packer falls back to
+`app.json.engine`, then to `*`. After packing, runtime compatibility checks read
+the engine range only from the manifest.
 
 ### Optimize While Packing
 
@@ -96,7 +99,7 @@ Options:
   -o, --output <OUTPUT_FILE>   Output file [default: bundle.aix]
   -O, --optimize               Enable optimization
       --opt-level <LEVEL>      Optimization level, 1-3 [default: 2]
-      --engine <RANGE>         Supported engine range [default: *]
+    --engine <RANGE>         Supported engine range
   -h, --help                   Print help
 ```
 
@@ -113,6 +116,9 @@ aix list ./bundle.aix
 ```bash
 aix ls ./bundle.aix
 ```
+
+`aix list` only prints archive entries. For packaged metadata such as the engine
+range, readers use `META-INF/aix/manifest.json` rather than `app.json`.
 
 ## Optimize An Existing Package
 
@@ -148,6 +154,10 @@ memory, and prints the preview URL without opening the browser automatically.
 The default preview mode embeds a snapshot of the current bundle contents into a
 single HTML document while loading the Ink SDK from the network at runtime. The
 preview viewport is fixed at `448x352`.
+
+When the input is a packaged `.aix` artifact, package metadata is read from
+`META-INF/aix/manifest.json`. Directory preview uses the source tree directly
+and does not treat `app.json.engine` as a runtime compatibility source.
 
 If you want the CLI to launch your default browser automatically, add
 `--launch`:

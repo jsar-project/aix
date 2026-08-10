@@ -47,7 +47,7 @@ type PackOptions = {
 type PackFromSourceFn = (
   files: AixInputFile[],
   buildId: string,
-  engine: string,
+  engine: string | undefined,
   optimize: false | OptimizeOptions | undefined,
 ) => { data: Uint8Array; report: unknown };
 
@@ -124,7 +124,7 @@ export class AIX {
     await init();
     const buildId = options?.buildId ?? generateBuildId();
     const optimize = options?.optimize === false ? undefined : options?.optimize;
-    const result = pack_aix(files, buildId, options?.engine ?? '*', optimize);
+    const result = pack_aix(files, buildId, options?.engine, optimize);
     return { data: result.data, report: result.report as OptimizeReport };
   }
 
@@ -139,7 +139,7 @@ export class AIX {
     const result = getPackFromSource()(
       sourceFiles,
       buildId,
-      options?.engine ?? '*',
+      options?.engine,
       optimize,
     );
     return { data: result.data, report: result.report as OptimizeReport };

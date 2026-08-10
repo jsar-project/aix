@@ -71,7 +71,7 @@ async function cmdPack(args: string[]) {
       o: { type: "string", short: "o" },
       optimize: { type: "boolean", short: "O" },
       "opt-level": { type: "string", default: "2" },
-      engine: { type: "string", default: "*" },
+      engine: { type: "string" },
     },
   });
   if (positionals.length !== 1) {

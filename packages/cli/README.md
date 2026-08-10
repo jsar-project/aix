@@ -31,6 +31,10 @@ aix pack ./my-agent -O --opt-level 3 # optimization level 1-3
 aix pack ./my-agent --engine '^0.14.0'
 ```
 
+If `--engine` is omitted, the packer falls back to `app.json.engine`, then to
+`*`, and writes the resolved range to `META-INF/aix/manifest.json`. Packaged
+readers use the manifest as the only source for engine compatibility checks.
+
 `.aixignore` files inside the input directory are honored (`.gitignore` syntax).
 
 When `.js` or `.ts` files are packed:
@@ -50,6 +54,9 @@ Lists all files and sizes inside an `.aix` package. Alias: `aix ls`.
 ```bash
 aix list bundle.aix
 ```
+
+`aix list` only prints archive entries. Package metadata such as the engine
+range comes from `META-INF/aix/manifest.json`.
 
 ### `aix optimize <AIX_FILE> -o <OUTPUT>`
 
@@ -76,6 +83,9 @@ automatically. In the default preview mode, the page embeds a snapshot of the
 current bundle contents into a single HTML document, while still loading the
 Ink SDK from the network at runtime. The current preview viewport is fixed at
 `448x352`.
+
+When the input is a packaged `.aix` artifact, package metadata is read from
+`META-INF/aix/manifest.json`. Directory preview reads the source tree directly.
 
 ```bash
 aix preview bundle.aix

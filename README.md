@@ -171,8 +171,11 @@ aix pack ./my-agent -o bundle.aix --engine '^0.14.0'
 aix list ./bundle.aix
 ```
 
-The engine range defaults to `*`. A complete version such as `0.14.0` is an
-exact match; ranges such as `>=0.14.0` and `^0.14.0` are also accepted.
+If `--engine` is omitted, the packer falls back to `app.json.engine`, then to
+`*`, and writes the resolved range to `META-INF/aix/manifest.json`. Packaged
+readers use the manifest as the single source of truth for engine checks. A
+complete version such as `0.14.0` is an exact match; ranges such as `>=0.14.0`
+and `^0.14.0` are also accepted.
 
 ### Sign And Verify In Rust
 
@@ -188,7 +191,7 @@ use rand_core::OsRng;
 fn main() -> anyhow::Result<()> {
     let private_key = PrivateKey::generate(&mut OsRng);
     let mut options = PackOptions::new("build-1");
-    options.engine = "^0.14.0".into();
+    options.engine = Some("^0.14.0".into());
     options.signing_key = Some(&private_key);
 
     let output = pack(
@@ -210,6 +213,8 @@ fn main() -> anyhow::Result<()> {
 
 Native callers using `OsRng` should enable the `getrandom` feature on their
 `rand_core` dependency. Bare-metal `no_std` callers provide their platform RNG.
+For packaged artifacts, `supports_engine()` reads the resolved engine range from
+`META-INF/aix/manifest.json`.
 
 ### Read AIX In The Browser
 
@@ -224,6 +229,9 @@ async function inspect(file: File) {
   console.log(aix.supportsEngine("0.14.2"));
 }
 ```
+
+For packaged artifacts, `supportsEngine()` reads the resolved engine range from
+`META-INF/aix/manifest.json`.
 
 ## Docs Site
 

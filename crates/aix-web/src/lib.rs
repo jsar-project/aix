@@ -37,7 +37,7 @@ impl AixPackResultWasm {
 pub fn pack_aix(
     files: JsValue,
     build_id: String,
-    engine: String,
+    engine: Option<String>,
     optimize_options: JsValue,
 ) -> Result<AixPackResultWasm, JsValue> {
     let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
@@ -55,7 +55,7 @@ pub fn pack_aix(
 pub fn pack_aix_from_source(
     files: JsValue,
     build_id: String,
-    engine: String,
+    engine: Option<String>,
     optimize_options: JsValue,
 ) -> Result<AixPackResultWasm, JsValue> {
     let files: Vec<InputFile> = serde_wasm_bindgen::from_value(files)
@@ -99,7 +99,7 @@ fn parse_optimize_options(optimize_options: JsValue) -> Result<Option<OptimizeOp
 fn pack_output(
     files: Vec<InputFile>,
     build_id: String,
-    engine: String,
+    engine: Option<String>,
     optimize: Option<OptimizeOptions>,
 ) -> Result<aix_pack::PackOutput> {
     aix_pack::pack(
@@ -116,7 +116,7 @@ fn pack_output(
 fn pack_output_from_source(
     files: Vec<InputFile>,
     build_id: String,
-    engine: String,
+    engine: Option<String>,
     optimize: Option<OptimizeOptions>,
 ) -> Result<aix_pack::PackOutput> {
     aix_pack::collector::pack_source_files(
@@ -190,7 +190,7 @@ mod tests {
                 },
             ],
             "test-build".into(),
-            "*".into(),
+            Some("*".into()),
             None,
         )
         .unwrap();
@@ -224,7 +224,7 @@ mod tests {
                 },
             ],
             "test-build".into(),
-            "*".into(),
+            Some("*".into()),
             None,
         )
         .unwrap();

@@ -35,8 +35,8 @@ enum Commands {
         opt_level: u8,
 
         /// Supported AIX engine version range
-        #[arg(long, default_value = "*")]
-        engine: String,
+        #[arg(long)]
+        engine: Option<String>,
     },
     /// List the contents of a .aix file
     #[command(alias = "ls")]
@@ -75,7 +75,13 @@ fn main() -> Result<()> {
             let output_path = output
                 .clone()
                 .unwrap_or_else(|| PathBuf::from("bundle.aix"));
-            pack_directory(input_dir, &output_path, *optimize, *opt_level, engine)?;
+            pack_directory(
+                input_dir,
+                &output_path,
+                *optimize,
+                *opt_level,
+                engine.as_deref(),
+            )?;
         }
         Commands::List { file } => {
             list_aix(file)?;
@@ -95,7 +101,7 @@ fn pack_directory(
     dst_file: &Path,
     optimize: bool,
     opt_level: u8,
-    engine: &str,
+    engine: Option<&str>,
 ) -> Result<()> {
     let uuid = Uuid::new_v4().to_string();
     println!("Generated UUID: {}", uuid);
@@ -105,7 +111,7 @@ fn pack_directory(
         &CollectOptions::default(),
         PackOptions {
             build_id: uuid,
-            engine: engine.into(),
+            engine: engine.map(str::to_string),
             optimize: optimize.then(|| OptimizeOptions {
                 level: opt_level,
                 ..OptimizeOptions::default()
