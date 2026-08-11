@@ -2,6 +2,13 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { renderPreviewHtml } from "./html";
 import { startDevPreviewServer, startStaticPreviewServer } from "./server";
+import {
+  buildPreviewInkImportMap,
+  getRemoteCurrentRuntimeVersion,
+  listPublishedRuntimeVersions,
+} from "../services/runtime-registry";
+import { readRuntimeSelection } from "../services/runtime-selection";
+import { withLoading } from "../ui/status";
 import { buildPreviewState } from "./state";
 import {
   installSignalHandlers,
@@ -34,9 +41,14 @@ export async function cmdPreview(args: string[]) {
 
   const inputPath = path.resolve(positionals[0]);
   const htmlOut = values["html-out"];
+  const previewRuntime = await resolvePreviewRuntime();
 
   if (values.dev) {
-    const preview = await startDevPreviewServer(inputPath);
+    const preview = await startDevPreviewServer(
+      inputPath,
+      previewRuntime.version,
+      previewRuntime.importMap,
+    );
     installSignalHandlers(() => preview.close());
     process.stdout.write(`Preview dev server running at ${preview.url}\n`);
     process.stdout.write("Press Ctrl+C to stop preview.\n");
@@ -50,6 +62,8 @@ export async function cmdPreview(args: string[]) {
   const html = renderPreviewHtml({
     mode: "static",
     sourceLabel: state.sourceName,
+    inkRuntimeVersion: previewRuntime.version,
+    inkImportMap: previewRuntime.importMap,
     title: state.title,
     version: state.version,
     fileCount: state.files.length,
@@ -70,4 +84,41 @@ export async function cmdPreview(args: string[]) {
   if (values.launch) {
     openInBrowser(preview.url);
   }
+}
+
+async function resolvePreviewRuntime(): Promise<{
+  version: string;
+  importMap: { imports: Record<string, string> };
+}> {
+  const selectedVersion = readRuntimeSelection()?.selectedVersion;
+  if (selectedVersion) {
+    const publishedVersions = await withLoading(
+      "Resolving preview runtime version...",
+      async () => await listPublishedRuntimeVersions(),
+    );
+    if (publishedVersions.includes(selectedVersion)) {
+      return {
+        version: selectedVersion,
+        importMap: buildPreviewInkImportMap(selectedVersion),
+      };
+    }
+
+    const remoteCurrentVersion = await withLoading(
+      "Resolving preview runtime version...",
+      async () => await getRemoteCurrentRuntimeVersion(),
+    );
+    return {
+      version: remoteCurrentVersion,
+      importMap: buildPreviewInkImportMap(remoteCurrentVersion),
+    };
+  }
+
+  const remoteCurrentVersion = await withLoading(
+    "Resolving preview runtime version...",
+    async () => await getRemoteCurrentRuntimeVersion(),
+  );
+  return {
+    version: remoteCurrentVersion,
+    importMap: buildPreviewInkImportMap(remoteCurrentVersion),
+  };
 }

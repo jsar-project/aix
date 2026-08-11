@@ -17,6 +17,10 @@ export type PreviewState = {
 export type PreviewHtmlConfig = {
   mode: "static" | "dev";
   sourceLabel: string;
+  inkRuntimeVersion: string;
+  inkImportMap: {
+    imports: Record<string, string>;
+  };
   title?: string;
   version?: string;
   fileCount?: number;

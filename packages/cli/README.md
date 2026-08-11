@@ -124,6 +124,11 @@ embeds the current bundle snapshot. Instead, it loads state from the local
 preview server, connects to a WebSocket endpoint, and rebuilds the `InkView`
 when the input `.aix` file or source directory changes.
 
+Preview loads the Ink browser runtime from `jspm.io` using an import map and
+the version selected by `aix runtime select`. If no local runtime has been
+selected, it falls back to the `latest` version from the active
+`AIX_NPM_REGISTRY`.
+
 ```bash
 aix preview bundle.aix --dev
 aix preview ./my-agent --dev
@@ -139,6 +144,58 @@ When `--dev` is provided:
 - the page rebuilds the `InkView` without refreshing the full document
 - add `--launch` if you want the browser to open automatically
 
+### `aix runtime versions`
+
+Lists the available stable preview runtime versions for `@yodaos-pkg/ink`.
+
+```bash
+aix runtime versions
+```
+
+The command prints:
+
+- the runtime source summary
+- the package name
+- the effective current runtime version
+- the locally selected version when present
+- the published stable version list
+
+Use `AIX_NPM_REGISTRY` to choose which registry provides Ink package metadata:
+
+```bash
+AIX_NPM_REGISTRY=npm aix runtime versions
+AIX_NPM_REGISTRY=npmmirror aix runtime versions
+```
+
+Supported values:
+
+- `npm` (default)
+- `npmmirror`
+
+When a local runtime has been selected, the CLI stores it in
+`~/.aix/runtime.json`. `aix runtime current` returns that selected version
+before falling back to the active registry `latest`.
+
+### `aix runtime current`
+
+Prints the current default preview runtime version as a single line.
+
+```bash
+aix runtime current
+```
+
+This output is designed to work well in scripts.
+
+### `aix runtime select`
+
+Starts an interactive terminal selector for choosing a stable preview runtime
+version. After you confirm a choice, the command saves it to
+`~/.aix/runtime.json`, prints the selected version, and exits.
+
+```bash
+aix runtime select
+```
+
 ## Development
 
 ```bash
@@ -149,9 +206,10 @@ npm run build   # compiles the Rust engine to WASM (requires rustup + wasm32-unk
 ## How it works
 
 The CLI is a thin TypeScript shell over the Rust AIX engine compiled to a
-Node.js WASM bundle (`wasm-pack --target nodejs`). Packing, optimization, and
-reading logic is shared byte-for-byte with the Rust/Web surfaces — no behavior
-fork.
+Node.js WASM bundle (`wasm-pack --target nodejs`). Command registration uses
+`commander`, and interactive runtime selection uses `@inquirer/prompts`.
+Packing, optimization, and reading logic are shared byte-for-byte with the
+Rust/Web surfaces — no behavior fork.
 
 ## License
 

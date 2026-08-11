@@ -1,6 +1,5 @@
 import {
   DEV_WS_PATH,
-  INK_SDK_URL,
   PREVIEW_HEIGHT,
   PREVIEW_WIDTH,
 } from "./constants";
@@ -9,9 +8,10 @@ import type { PreviewHtmlConfig } from "./types";
 export function renderPreviewHtml(config: PreviewHtmlConfig): string {
   const title = config.title?.trim() || config.sourceLabel;
   const versionLabel = config.version?.trim() || "Unknown";
+  const importMap = serializeForInlineScript(config.inkImportMap);
   const runtimeConfig = serializeForInlineScript({
     mode: config.mode,
-    inkSdkUrl: INK_SDK_URL,
+    inkRuntimeVersion: config.inkRuntimeVersion,
     statePath: config.statePath,
     initialState: config.initialState,
   });
@@ -285,6 +285,7 @@ export function renderPreviewHtml(config: PreviewHtmlConfig): string {
       </section>
     </main>
 
+    <script type="importmap">${importMap}</script>
     <script id="aix-preview-config" type="application/json">${runtimeConfig}</script>
     <script type="module">
       const previewConfigNode = document.getElementById("aix-preview-config");
@@ -302,10 +303,11 @@ export function renderPreviewHtml(config: PreviewHtmlConfig): string {
       let inkModulePromise;
       let controlsBound = false;
       let socket;
+      const inkRuntimeLine = "Ink runtime: " + (previewConfig.inkRuntimeVersion || "Unknown");
 
       function setStatus(message, tone = "info") {
         statusNode.dataset.tone = tone;
-        statusNode.textContent = message;
+        statusNode.textContent = message + "\\n" + inkRuntimeLine;
       }
 
       function decodeBase64(base64) {
@@ -408,7 +410,7 @@ export function renderPreviewHtml(config: PreviewHtmlConfig): string {
 
       function ensureInkModule() {
         if (!inkModulePromise) {
-          inkModulePromise = import(previewConfig.inkSdkUrl);
+          inkModulePromise = import("@yodaos-pkg/ink");
         }
         return inkModulePromise;
       }

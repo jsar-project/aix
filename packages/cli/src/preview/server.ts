@@ -47,6 +47,8 @@ export async function startStaticPreviewServer(
 
 export async function startDevPreviewServer(
   inputPath: string,
+  inkRuntimeVersion: string,
+  inkImportMap: { imports: Record<string, string> },
 ): Promise<PreviewServer> {
   let currentState = buildPreviewState(inputPath);
   let revision = 0;
@@ -62,6 +64,8 @@ export async function startDevPreviewServer(
       const html = renderPreviewHtml({
         mode: "dev",
         sourceLabel,
+        inkRuntimeVersion,
+        inkImportMap,
         title: currentState.title,
         version: currentState.version,
         fileCount: currentState.files.length,

@@ -153,7 +153,7 @@ By default, the command starts a local HTTP server, serves the preview page from
 memory, and prints the preview URL without opening the browser automatically.
 The default preview mode embeds a snapshot of the current bundle contents into a
 single HTML document while loading the Ink SDK from the network at runtime. The
-preview viewport is fixed at `448x352`.
+preview viewport is fixed at `480x352`.
 
 When the input is a packaged `.aix` artifact, package metadata is read from
 `META-INF/aix/manifest.json`. Directory preview uses the source tree directly
@@ -184,6 +184,15 @@ When `--html-out` is provided:
 - the browser is not opened automatically
 - `--launch` is not allowed
 
+Preview loads the Ink browser runtime from `jspm.io` using an import map and
+the version selected by `aix runtime select`. If no local runtime has been
+selected, it falls back to the `latest` version from the active
+`AIX_NPM_REGISTRY`.
+
+The preview sidebar status area also shows the active Ink runtime version, for
+example `Ink runtime: 0.14.0`, so it is easy to confirm which runtime version
+the current session is using.
+
 ### Development Mode
 
 Use `--dev` when you want the preview page to load state from the preview server
@@ -205,6 +214,63 @@ In `--dev` mode:
 - `--html-out` is not allowed
 - add `--launch` if you want the browser to open automatically
 
+## Inspect Preview Runtime Versions
+
+Use the `runtime` command group to inspect the preview runtime used by the npm
+CLI.
+
+Use `AIX_NPM_REGISTRY` to choose which registry provides Ink package metadata:
+
+```bash
+AIX_NPM_REGISTRY=npm aix runtime versions
+AIX_NPM_REGISTRY=npmmirror aix runtime versions
+```
+
+Supported values:
+
+- `npm` (default)
+- `npmmirror`
+
+When a local runtime has been selected, the CLI stores it in
+`~/.aix/runtime.json`. `aix runtime current` returns that selected version
+before falling back to the active registry `latest`.
+
+### List Available Runtime Versions
+
+```bash
+aix runtime versions
+```
+
+This prints the effective current runtime version, the selected local version
+when present, and the published stable version list for `@yodaos-pkg/ink`.
+The output includes:
+
+- `Runtime source`
+- `Package`
+- `Current`
+- `Selected` when a local runtime has been saved
+- `Versions`
+
+### Print The Current Default Runtime
+
+```bash
+aix runtime current
+```
+
+The command prints only the resolved version string, so it also works well in
+shell scripts. It prefers the version saved by `aix runtime select`.
+
+### Select A Runtime Interactively
+
+```bash
+aix runtime select
+```
+
+This opens an interactive terminal selector, saves the chosen version to
+`~/.aix/runtime.json`, prints it, and then exits. Only stable versions are
+shown. The currently selected version is marked as `(selected)`, and the
+registry default version is marked as `(current default)` when they differ.
+
 ## Run From The Workspace
 
 During development, run either surface without installing it globally:
@@ -224,6 +290,7 @@ Pass `--help` after a subcommand to inspect its current options:
 
 ```bash
 node dist/cli.js pack --help
+node dist/cli.js runtime --help
 ```
 
 ## Related Documentation
