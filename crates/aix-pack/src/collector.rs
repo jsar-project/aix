@@ -22,7 +22,7 @@ use crate::{
     PackProgressEvent,
 };
 use anyhow::{anyhow, Context, Result};
-use ignore::gitignore::GitignoreBuilder;
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -82,16 +82,13 @@ pub fn collect_inputs(files: Vec<InputFile>, options: &CollectOptions) -> Result
     normalized.sort_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
     reject_duplicate_paths(&normalized)?;
 
-    let matcher = build_ignore_matcher(&normalized)?;
+    let matchers = build_ignore_matchers(&normalized)?;
     let mut collected = Vec::with_capacity(normalized.len());
     for file in normalized {
         if is_rule_file(&file.path) && options.exclude_rule_file {
             continue;
         }
-        if matcher
-            .matched_path_or_any_parents(to_virtual_path(&file.path), false)
-            .is_ignore()
-        {
+        if is_ignored(&matchers, &to_virtual_path(&file.path)) {
             continue;
         }
         collected.push(file);
@@ -237,25 +234,64 @@ fn reject_duplicate_paths(files: &[InputFile]) -> Result<()> {
     Ok(())
 }
 
-fn build_ignore_matcher(files: &[InputFile]) -> Result<ignore::gitignore::Gitignore> {
-    let root = PathBuf::from(VIRTUAL_ROOT);
-    let mut builder = GitignoreBuilder::new(&root);
+struct IgnoreRule {
+    /// Directory (relative to the virtual root) that owns this matcher.
+    dir: PathBuf,
+    matcher: Gitignore,
+}
 
+fn build_ignore_matchers(files: &[InputFile]) -> Result<Vec<IgnoreRule>> {
+    let mut rules = Vec::new();
     for file in files.iter().filter(|file| is_rule_file(&file.path)) {
         let (data, _) = normalize_text_to_utf8(&file.path, &file.data)?;
         let content = String::from_utf8(data)
             .with_context(|| format!("Failed to decode {} as UTF-8", file.path))?;
-        let from = to_virtual_path(&file.path);
+
+        // A .aixignore must be matched relative to the directory that contains
+        // it, not the package root. `GitignoreBuilder::new` anchors the globs
+        // to the directory passed here; the per-line `from` argument is only
+        // display metadata and does not affect matching.
+        let rule_path = to_virtual_path(&file.path);
+        let dir = rule_path
+            .parent()
+            .map(|parent| parent.to_path_buf())
+            .ok_or_else(|| anyhow!("Invalid .aixignore path: {}", file.path))?;
+
+        let mut builder = GitignoreBuilder::new(&dir);
         for line in content.lines() {
             builder
-                .add_line(Some(from.clone()), line)
+                .add_line(None, line)
                 .map_err(|error| anyhow!("Invalid .aixignore in {}: {}", file.path, error))?;
         }
+        let matcher = builder
+            .build()
+            .map_err(|error| anyhow!("Failed to build .aixignore matcher: {}", error))?;
+        rules.push(IgnoreRule { dir, matcher });
     }
 
-    builder
-        .build()
-        .map_err(|error| anyhow!("Failed to build .aixignore matcher: {}", error))
+    // Shallowest first so deeper .aixignore files take precedence.
+    rules.sort_by_key(|rule| rule.dir.components().count());
+    Ok(rules)
+}
+
+fn is_ignored(rules: &[IgnoreRule], virtual_path: &Path) -> bool {
+    let mut ignored = false;
+    for rule in rules {
+        // Only apply a rule to files under the directory that owns it, so a
+        // nested .aixignore never affects the root or sibling directories.
+        if !virtual_path.starts_with(&rule.dir) {
+            continue;
+        }
+        let matched = rule
+            .matcher
+            .matched_path_or_any_parents(virtual_path, false);
+        if matched.is_ignore() {
+            ignored = true;
+        } else if matched.is_whitelist() {
+            ignored = false;
+        }
+    }
+    ignored
 }
 
 fn is_rule_file(path: &str) -> bool {
@@ -320,6 +356,77 @@ mod tests {
 
         assert_eq!(collected.len(), 1);
         assert_eq!(collected[0].path, "keep.tmp");
+    }
+
+    #[test]
+    fn nested_aixignore_does_not_leak_to_root_or_siblings() {
+        let collected = collect_inputs(
+            vec![
+                InputFile::new("nested/.aixignore", b"*.tmp\n"),
+                InputFile::new("nested/keep.txt", b"keep"),
+                InputFile::new("nested/drop.tmp", b"drop"),
+                InputFile::new("root.tmp", b"root"),
+                InputFile::new("sibling/drop.tmp", b"sibling"),
+            ],
+            &CollectOptions::default(),
+        )
+        .unwrap();
+
+        let paths: Vec<&str> = collected.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec!["nested/keep.txt", "root.tmp", "sibling/drop.tmp"]
+        );
+    }
+
+    #[test]
+    fn nested_aixignore_anchored_rule_scopes_to_its_directory() {
+        let collected = collect_inputs(
+            vec![
+                InputFile::new("nested/.aixignore", b"/secret.txt\n"),
+                InputFile::new("nested/secret.txt", b"nested-secret"),
+                InputFile::new("secret.txt", b"root-secret"),
+            ],
+            &CollectOptions::default(),
+        )
+        .unwrap();
+
+        let paths: Vec<&str> = collected.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, vec!["secret.txt"]);
+    }
+
+    #[test]
+    fn nested_aixignore_directory_rule_scopes_to_its_directory() {
+        let collected = collect_inputs(
+            vec![
+                InputFile::new("nested/.aixignore", b"dist/\n"),
+                InputFile::new("nested/dist/foo.js", b"foo"),
+                InputFile::new("other/dist/foo.js", b"other"),
+            ],
+            &CollectOptions::default(),
+        )
+        .unwrap();
+
+        let paths: Vec<&str> = collected.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, vec!["other/dist/foo.js"]);
+    }
+
+    #[test]
+    fn nested_aixignore_whitelist_does_not_reinclude_root_file() {
+        let collected = collect_inputs(
+            vec![
+                InputFile::new(".aixignore", b"*.tmp\n"),
+                InputFile::new("nested/.aixignore", b"!keep.tmp\n"),
+                InputFile::new("nested/keep.tmp", b"nested"),
+                InputFile::new("keep.tmp", b"root"),
+                InputFile::new("drop.tmp", b"drop"),
+            ],
+            &CollectOptions::default(),
+        )
+        .unwrap();
+
+        let paths: Vec<&str> = collected.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, vec!["nested/keep.tmp"]);
     }
 
     #[test]
