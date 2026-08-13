@@ -45,6 +45,8 @@ Packing performs the following work before writing the archive:
 
 - respects `.aixignore` and the standard ignore files
 - validates JSON files
+- validates the app contract, rejecting a missing `app.json` and warning when
+  its `pages` field is not an array of non-empty page paths
 - converts supported text files to UTF-8 when needed
 - generates a unique `VERSION` build ID
 - generates `META-INF/aix/manifest.json` with file digests and package metadata

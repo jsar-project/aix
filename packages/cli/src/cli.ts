@@ -4,6 +4,7 @@ import { cmdRuntimeCurrent } from "./commands/runtime/current";
 import { cmdRuntimeSelect } from "./commands/runtime/select";
 import { cmdRuntimeVersions } from "./commands/runtime/versions";
 import { cmdPreview } from "./preview";
+import { formatError } from "./ui/status";
 
 async function main() {
   const program = new Command();
@@ -147,6 +148,6 @@ function buildPreviewArgs(
 
 main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`error: ${message}\n`);
+  process.stderr.write(`${formatError(message)}\n`);
   process.exit(1);
 });

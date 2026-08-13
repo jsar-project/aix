@@ -2,7 +2,7 @@ use aix_pack::{collector::CollectOptions, OptimizeOptions, PackOptions};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::fs::File;
-use std::io::Read;
+use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -61,7 +61,14 @@ enum Commands {
     },
 }
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(error) = run() {
+        print_error(&error);
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
@@ -96,6 +103,14 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn print_error(error: &anyhow::Error) {
+    if std::io::stderr().is_terminal() {
+        eprintln!("\x1b[1;31merror:\x1b[0m \x1b[31m{error:?}\x1b[0m");
+    } else {
+        eprintln!("error: {error:?}");
+    }
+}
+
 fn pack_directory(
     src_dir: &Path,
     dst_file: &Path,
@@ -119,6 +134,9 @@ fn pack_directory(
             signing_key: None,
         },
     )?;
+    for warning in &output.warnings {
+        eprintln!("warning: {}", warning);
+    }
     std::fs::write(dst_file, output.data)?;
 
     for line in render_pack_report_lines(&output.report, optimize) {

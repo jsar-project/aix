@@ -7,6 +7,8 @@ import {
 } from "../wasm";
 import type { PackProgressEvent } from "../wasm";
 import { walkDirectory, WalkedFile } from "../walk";
+import ora from "ora";
+import { formatError } from "../ui/status";
 
 type PackLogger = {
   writeLine(message: string): void;
@@ -23,7 +25,7 @@ function formatSize(bytes: number): string {
 }
 
 function printError(message: string): never {
-  process.stderr.write(`error: ${message}\n`);
+  process.stderr.write(`${formatError(message)}\n`);
   process.exit(1);
 }
 
@@ -112,98 +114,121 @@ export async function cmdPack(args: string[]) {
   const optimize = values.optimize ?? false;
   const optLevel = parseLevel(values["opt-level"], "--opt-level");
   const engine = values.engine;
-  const logger = createPackLogger(values["log-time"] ?? false);
+  const logTime = values["log-time"] ?? false;
+  const logger = createPackLogger(logTime);
 
-  logger.writeLine(`Scanning source files in ${inputDir}`);
-  const files = walkDirectory(inputDir);
-  logger.writeLine(`Collected ${files.length} source files`);
-  logger.writeLine("Loading WASM engine");
-  const engineApi = loadEngine();
-  logger.writeLine("WASM engine ready");
-
-  const optimizeArg = optimize
-    ? { level: optLevel, json: true, png: true, jpeg: true }
-    : null;
-
-  const buildId = crypto.randomUUID();
-  const sourceBuilderCtor = engineApi.AixSourcePackBuilderWasm;
-  const progressPack = engineApi.pack_aix_from_source_with_progress;
-  const handlePackProgress = (event: PackProgressEvent) => {
-    if (event.type === "transferring_files_to_wasm") {
-      logger.writeLine("Transferring files to WASM");
-      return;
-    }
-    if (event.type === "collecting_source_inputs") {
-      logger.writeLine("Collecting source inputs");
-      return;
-    }
-    if (event.type === "resolving_engine") {
-      logger.writeLine("Resolving engine range");
-      return;
-    }
-    if (event.type === "preparing_files") {
-      logger.writeLine("Preparing files for packaging");
-      return;
-    }
-    if (event.type === "finalizing_archive") {
-      logger.writeLine("Finalizing package archive");
-      return;
-    }
-    if (event.type !== "file_finished") {
-      return;
-    }
-    const line = formatPackFileLine(
-      event.report as AixPackResult["report"]["files"][number],
-    );
-    if (line) {
-      logger.writeLine(line);
+  const spinner = process.stderr.isTTY && !logTime ? ora().start() : null;
+  const status = (text: string) => {
+    if (spinner) {
+      spinner.text = text;
+    } else {
+      logger.writeLine(text);
     }
   };
-  if (sourceBuilderCtor) {
-    logger.writeLine("Creating WASM source builder");
-  } else if (progressPack) {
-    logger.writeLine("Invoking WASM packer");
-  }
-  let result: AixPackResult;
-  if (sourceBuilderCtor) {
-    const sourceBuilder = new sourceBuilderCtor();
-    logger.writeLine("Transferring files to WASM incrementally");
-    for (const file of files) {
-      sourceBuilder.add_file(file.path, file.data);
-    }
-    logger.writeLine("Finished transferring files to WASM");
-    result = sourceBuilder.pack_from_source_with_progress(
-      buildId,
-      engine,
-      optimizeArg,
-      handlePackProgress,
-    );
-  } else {
-    const inputFiles: AixInputFile[] = files.map((f: WalkedFile) => ({
-      path: f.path,
-      data: f.data,
-    }));
-    result = progressPack
-      ? progressPack(inputFiles, buildId, engine, optimizeArg, handlePackProgress)
-      : engineApi.pack_aix_from_source(inputFiles, buildId, engine, optimizeArg);
-  }
 
-  writeOutput(result.data, outputPath);
+  try {
+    status(`Scanning source files in ${inputDir}`);
+    const files = walkDirectory(inputDir);
+    status(`Collected ${files.length} source files`);
+    status("Loading WASM engine");
+    const engineApi = loadEngine();
+    status("WASM engine ready");
 
-  if (!sourceBuilderCtor && !progressPack) {
-    for (const file of result.report.files) {
-      const line = formatPackFileLine(file);
+    const optimizeArg = optimize
+      ? { level: optLevel, json: true, png: true, jpeg: true }
+      : null;
+
+    const buildId = crypto.randomUUID();
+    const sourceBuilderCtor = engineApi.AixSourcePackBuilderWasm;
+    const progressPack = engineApi.pack_aix_from_source_with_progress;
+    const handlePackProgress = (event: PackProgressEvent) => {
+      if (event.type === "transferring_files_to_wasm") {
+        status("Transferring files to WASM");
+        return;
+      }
+      if (event.type === "collecting_source_inputs") {
+        status("Collecting source inputs");
+        return;
+      }
+      if (event.type === "resolving_engine") {
+        status("Resolving engine range");
+        return;
+      }
+      if (event.type === "preparing_files") {
+        status("Preparing files for packaging");
+        return;
+      }
+      if (event.type === "finalizing_archive") {
+        status("Finalizing package archive");
+        return;
+      }
+      if (event.type !== "file_finished") {
+        return;
+      }
+      const line = formatPackFileLine(
+        event.report as AixPackResult["report"]["files"][number],
+      );
       if (line) {
         logger.writeLine(line);
       }
+    };
+    if (sourceBuilderCtor) {
+      status("Creating WASM source builder");
+    } else if (progressPack) {
+      status("Invoking WASM packer");
     }
-  }
+    let result: AixPackResult;
+    if (sourceBuilderCtor) {
+      const sourceBuilder = new sourceBuilderCtor();
+      status("Transferring files to WASM incrementally");
+      for (const file of files) {
+        sourceBuilder.add_file(file.path, file.data);
+      }
+      status("Finished transferring files to WASM");
+      result = sourceBuilder.pack_from_source_with_progress(
+        buildId,
+        engine,
+        optimizeArg,
+        handlePackProgress,
+      );
+    } else {
+      const inputFiles: AixInputFile[] = files.map((f: WalkedFile) => ({
+        path: f.path,
+        data: f.data,
+      }));
+      result = progressPack
+        ? progressPack(inputFiles, buildId, engine, optimizeArg, handlePackProgress)
+        : engineApi.pack_aix_from_source(inputFiles, buildId, engine, optimizeArg);
+    }
 
-  const finalSize = fs.statSync(outputPath).size;
-  logger.writeLine(`Package created: ${outputPath} (${formatSize(finalSize)})`);
-  const summaryLine = formatPackSummaryLine(result.report, optimize);
-  if (summaryLine) {
-    logger.writeLine(summaryLine);
+    for (const warning of result.warnings ?? []) {
+      process.stderr.write(`warning: ${warning}\n`);
+    }
+
+    writeOutput(result.data, outputPath);
+
+    if (!sourceBuilderCtor && !progressPack) {
+      for (const file of result.report.files) {
+        const line = formatPackFileLine(file);
+        if (line) {
+          logger.writeLine(line);
+        }
+      }
+    }
+
+    const finalSize = fs.statSync(outputPath).size;
+    if (spinner) {
+      spinner.succeed(`Package created: ${outputPath} (${formatSize(finalSize)})`);
+    } else {
+      logger.writeLine(`Package created: ${outputPath} (${formatSize(finalSize)})`);
+    }
+    const summaryLine = formatPackSummaryLine(result.report, optimize);
+    if (summaryLine) {
+      logger.writeLine(summaryLine);
+    }
+  } catch (error) {
+    spinner?.fail();
+    throw error;
   }
 }
 

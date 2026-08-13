@@ -19,6 +19,7 @@ pub struct AixReaderWasm {
 pub struct AixPackResultWasm {
     data: Vec<u8>,
     report: aix_pack::OptimizeReport,
+    warnings: Vec<String>,
 }
 
 #[wasm_bindgen]
@@ -42,6 +43,11 @@ impl AixPackResultWasm {
     #[wasm_bindgen(getter)]
     pub fn report(&self) -> Result<JsValue, JsValue> {
         to_value(&self.report)
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn warnings(&self) -> Result<JsValue, JsValue> {
+        to_value(&self.warnings)
     }
 }
 
@@ -83,6 +89,7 @@ impl AixSourcePackBuilderWasm {
         Ok(AixPackResultWasm {
             data: output.data,
             report: output.report,
+            warnings: output.warnings,
         })
     }
 }
@@ -102,6 +109,7 @@ pub fn pack_aix(
     Ok(AixPackResultWasm {
         data: output.data,
         report: output.report,
+        warnings: output.warnings,
     })
 }
 
@@ -120,6 +128,7 @@ pub fn pack_aix_from_source(
     Ok(AixPackResultWasm {
         data: output.data,
         report: output.report,
+        warnings: output.warnings,
     })
 }
 
@@ -155,6 +164,7 @@ pub fn pack_aix_from_source_with_progress(
     Ok(AixPackResultWasm {
         data: output.data,
         report: output.report,
+        warnings: output.warnings,
     })
 }
 
@@ -182,6 +192,7 @@ pub fn optimize_aix(data: Vec<u8>, options: JsValue) -> Result<AixPackResultWasm
     Ok(AixPackResultWasm {
         data: output.data,
         report: output.report,
+        warnings: output.warnings,
     })
 }
 

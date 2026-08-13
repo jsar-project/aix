@@ -68,7 +68,7 @@ export type OptimizeReport = {
   saved_bytes: number;
 };
 
-export type AixPackResult = { data: Uint8Array; report: OptimizeReport };
+export type AixPackResult = { data: Uint8Array; report: OptimizeReport; warnings: string[] };
 export type PackProgressEvent =
   | { type: 'transferring_files_to_wasm' }
   | { type: 'collecting_source_inputs' }

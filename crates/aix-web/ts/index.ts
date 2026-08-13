@@ -36,6 +36,7 @@ export interface OptimizeReport {
 export interface PackResult {
   data: Uint8Array;
   report: OptimizeReport;
+  warnings: string[];
 }
 
 type PackOptions = {
@@ -49,7 +50,7 @@ type PackFromSourceFn = (
   buildId: string,
   engine: string | undefined,
   optimize: false | OptimizeOptions | undefined,
-) => { data: Uint8Array; report: unknown };
+) => { data: Uint8Array; report: unknown; warnings?: string[] };
 
 function generateBuildId(): string {
   const cryptoApi = globalThis.crypto;
@@ -125,7 +126,7 @@ export class AIX {
     const buildId = options?.buildId ?? generateBuildId();
     const optimize = options?.optimize === false ? undefined : options?.optimize;
     const result = pack_aix(files, buildId, options?.engine, optimize);
-    return { data: result.data, report: result.report as OptimizeReport };
+    return { data: result.data, report: result.report as OptimizeReport, warnings: result.warnings ?? [] };
   }
 
   static async packFromFiles(files: File[], options?: PackOptions): Promise<PackResult> {
@@ -142,7 +143,7 @@ export class AIX {
       options?.engine,
       optimize,
     );
-    return { data: result.data, report: result.report as OptimizeReport };
+    return { data: result.data, report: result.report as OptimizeReport, warnings: result.warnings ?? [] };
   }
 
   static async optimize(
@@ -154,7 +155,7 @@ export class AIX {
       ? data
       : new Uint8Array(await data.arrayBuffer());
     const result = optimize_aix(buffer, options);
-    return { data: result.data, report: result.report as OptimizeReport };
+    return { data: result.data, report: result.report as OptimizeReport, warnings: result.warnings ?? [] };
   }
 
   /**
