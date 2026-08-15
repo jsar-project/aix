@@ -5,10 +5,10 @@ extern crate alloc;
 use alloc::{format, string::String, string::ToString, vec::Vec};
 use anyhow::{anyhow, Result};
 #[cfg(not(feature = "std"))]
-use hashbrown::HashSet;
+use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 
@@ -24,7 +24,7 @@ fn aix_warn(msg: &str) {
     console_warn(msg);
     log::warn!("{}", msg);
 }
-use rawzip::{CompressionMethod, ZipArchive};
+use rawzip::{CompressionMethod, ZipArchive, ZipArchiveEntryWayfinder};
 
 pub mod analyzer;
 pub mod crypto;
@@ -134,7 +134,16 @@ struct PageSchema {
 /// filesystem access.
 pub struct AixReader {
     entries: Vec<AixEntry>,
+    index: HashMap<String, EntryLocator>,
     data: Vec<u8>,
+}
+
+/// Locates a single archive entry so extraction can seek directly to the
+/// local header instead of rescanning the central directory on every read.
+#[derive(Clone, Copy)]
+struct EntryLocator {
+    wayfinder: ZipArchiveEntryWayfinder,
+    method: CompressionMethod,
 }
 
 /// Checks whether a runtime engine version satisfies a package engine range.
@@ -194,6 +203,7 @@ impl AixReader {
     /// invalid path, or includes duplicate normalized entry names.
     pub fn new(data: Vec<u8>) -> Result<Self> {
         let mut entries = Vec::new();
+        let mut index = HashMap::new();
         let archive = ZipArchive::from_slice(data.as_slice())
             .map_err(|error| anyhow!("Failed to read zip: {:?}", error))?;
         let mut zip_entries = archive.entries();
@@ -207,9 +217,16 @@ impl AixReader {
                 .map_err(|error| anyhow!("Invalid zip path: {:?}", error))?
                 .as_ref()
                 .to_string();
-            if entries.iter().any(|entry: &AixEntry| entry.name == name) {
+            if index.contains_key(&name) {
                 return Err(anyhow!("Duplicate zip entry: {}", name));
             }
+            index.insert(
+                name.clone(),
+                EntryLocator {
+                    wayfinder: file.wayfinder(),
+                    method: file.compression_method(),
+                },
+            );
             entries.push(AixEntry {
                 name,
                 size: file.uncompressed_size_hint(),
@@ -217,7 +234,11 @@ impl AixReader {
             });
         }
 
-        Ok(Self { entries, data })
+        Ok(Self {
+            entries,
+            index,
+            data,
+        })
     }
 
     /// Returns the normalized archive entries contained in the package.
@@ -320,46 +341,41 @@ impl AixReader {
     /// file is missing, the compression method is unsupported, extraction fails,
     /// or ZIP integrity verification does not match the stored metadata.
     pub fn read_file(&self, name: &str) -> Result<Vec<u8>> {
+        let locator = self
+            .index
+            .get(name)
+            .copied()
+            .ok_or_else(|| anyhow!("File not found: {}", name))?;
         let archive = ZipArchive::from_slice(self.data.as_slice())
             .map_err(|error| anyhow!("Failed to read zip: {:?}", error))?;
-        let mut entries = archive.entries();
-        while let Some(entry) = entries
-            .next_entry()
-            .map_err(|error| anyhow!("Failed to read zip entry: {:?}", error))?
-        {
-            let path = entry
-                .file_path()
-                .try_normalize()
-                .map_err(|error| anyhow!("Invalid zip path: {:?}", error))?;
-            if path.as_ref() != name {
-                continue;
+        let local = archive
+            .get_entry(locator.wayfinder)
+            .map_err(|error| anyhow!("Failed to locate {}: {:?}", name, error))?;
+        let claimed = local.claim_verifier();
+        let limit = usize::try_from(claimed.uncompressed_size)
+            .map_err(|_| anyhow!("File too large: {}", name))?;
+        let output = match locator.method {
+            CompressionMethod::STORE => local.data().to_vec(),
+            CompressionMethod::DEFLATE => {
+                miniz_oxide::inflate::decompress_to_vec_with_limit(local.data(), limit)
+                    .map_err(|error| anyhow!("Failed to extract {}: {}", name, error))?
             }
-
-            let method = entry.compression_method();
-            let local = archive
-                .get_entry(entry.wayfinder())
-                .map_err(|error| anyhow!("Failed to locate {}: {:?}", name, error))?;
-            let claimed = local.claim_verifier();
-            let limit = usize::try_from(claimed.uncompressed_size)
-                .map_err(|_| anyhow!("File too large: {}", name))?;
-            let output = match method {
-                CompressionMethod::STORE => local.data().to_vec(),
-                CompressionMethod::DEFLATE => {
-                    miniz_oxide::inflate::decompress_to_vec_with_limit(local.data(), limit)
-                        .map_err(|error| anyhow!("Failed to extract {}: {}", name, error))?
-                }
-                _ => return Err(anyhow!("Unsupported compression for {}: {}", name, method)),
-            };
-            let actual = rawzip::ZipVerification {
-                crc: rawzip::crc32(&output),
-                uncompressed_size: output.len() as u64,
-            };
-            claimed
-                .valid(actual)
-                .map_err(|error| anyhow!("Failed to verify {}: {:?}", name, error))?;
-            return Ok(output);
-        }
-        Err(anyhow!("File not found: {}", name))
+            _ => {
+                return Err(anyhow!(
+                    "Unsupported compression for {}: {}",
+                    name,
+                    locator.method
+                ))
+            }
+        };
+        let actual = rawzip::ZipVerification {
+            crc: rawzip::crc32(&output),
+            uncompressed_size: output.len() as u64,
+        };
+        claimed
+            .valid(actual)
+            .map_err(|error| anyhow!("Failed to verify {}: {:?}", name, error))?;
+        Ok(output)
     }
 
     /// Reads the package build identifier from the `VERSION` entry.

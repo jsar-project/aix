@@ -37,3 +37,8 @@ wasm = ["wasm-bindgen", "js-sys", "serde-wasm-bindgen"]
 
 [dev-dependencies]
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
+criterion = "0.5"
+
+[[bench]]
+name = "read"
+harness = false

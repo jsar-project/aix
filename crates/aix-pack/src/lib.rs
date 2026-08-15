@@ -267,10 +267,10 @@ where
 
     let cursor = Cursor::new(Vec::new());
     let mut zip = zip::ZipWriter::new(cursor);
-    let file_options = FileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored)
-        .unix_permissions(0o644);
     for file in prepared_files {
+        let file_options = FileOptions::default()
+            .compression_method(compression_method_for(&file.path))
+            .unix_permissions(0o644);
         zip.start_file(file.path, file_options)?;
         zip.write_all(&file.data)?;
     }
@@ -280,6 +280,31 @@ where
         report,
         warnings: Vec::new(),
     })
+}
+
+/// Chooses the ZIP compression method for a packed entry.
+///
+/// Image formats re-encoded by the optimizer are already compressed, so
+/// deflating them again wastes CPU without shrinking the package. Everything
+/// else — JSON, scripts, templates, stylesheets, and the generated manifest —
+/// compresses well.
+fn compression_method_for(path: &str) -> zip::CompressionMethod {
+    if is_already_compressed(path) {
+        zip::CompressionMethod::Stored
+    } else {
+        zip::CompressionMethod::Deflated
+    }
+}
+
+fn is_already_compressed(path: &str) -> bool {
+    matches!(
+        path.rsplit_once('.')
+            .map(|(_, extension)| extension)
+            .unwrap_or("")
+            .to_ascii_lowercase()
+            .as_str(),
+        "png" | "jpg" | "jpeg"
+    )
 }
 
 fn build_manifest(
@@ -945,5 +970,57 @@ mod tests {
         .unwrap();
 
         assert!(output.warnings.is_empty());
+    }
+
+    #[test]
+    fn chooses_compression_method_per_extension() {
+        assert_eq!(
+            compression_method_for("app.json"),
+            zip::CompressionMethod::Deflated
+        );
+        assert_eq!(
+            compression_method_for("pages/index/index.ink"),
+            zip::CompressionMethod::Deflated
+        );
+        assert_eq!(
+            compression_method_for("images/cover.png"),
+            zip::CompressionMethod::Stored
+        );
+        assert_eq!(
+            compression_method_for("images/cover.jpg"),
+            zip::CompressionMethod::Stored
+        );
+        assert_eq!(
+            compression_method_for("images/cover.jpeg"),
+            zip::CompressionMethod::Stored
+        );
+    }
+
+    #[test]
+    fn deflates_text_entries_and_round_trips() {
+        let ink = "repeated padding text ".repeat(200);
+        let output = pack(
+            vec![
+                InputFile::new("app.json", br#"{"pages":[]}"#),
+                InputFile::new("pages/index/index.ink", ink.clone()),
+            ],
+            PackOptions::new("test-build"),
+        )
+        .unwrap();
+
+        // The reader re-verifies CRC + uncompressed size, so a successful read
+        // proves the DEFLATE round-trip is intact end to end.
+        let reader = aix::AixReader::new(output.data).unwrap();
+        assert_eq!(
+            reader.read_file("pages/index/index.ink").unwrap(),
+            ink.into_bytes()
+        );
+
+        let entry = reader
+            .list()
+            .iter()
+            .find(|entry| entry.name == "pages/index/index.ink")
+            .unwrap();
+        assert!(entry.compressed_size < entry.size);
     }
 }
