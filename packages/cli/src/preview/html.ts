@@ -2,10 +2,14 @@ import {
   DEV_WS_PATH,
   PREVIEW_HEIGHT,
   PREVIEW_WIDTH,
+  CURRENT_PREVIEW_WIDTH,
+  CURRENT_PREVIEW_HEIGHT,
 } from "./constants";
-import type { PreviewHtmlConfig } from "./types";
+import type { PreviewHtmlConfig, PreviewTarget } from "./types";
 
 export function renderPreviewHtml(config: PreviewHtmlConfig): string {
+  const previewWidth = PREVIEW_WIDTH;
+  const previewHeight = PREVIEW_HEIGHT;
   const title = config.title?.trim() || config.sourceLabel;
   const versionLabel = config.version?.trim() || "Unknown";
   const importMap = serializeForInlineScript(config.inkImportMap);
@@ -102,7 +106,7 @@ export function renderPreviewHtml(config: PreviewHtmlConfig): string {
       }
 
       .preview-shell {
-        width: ${PREVIEW_WIDTH}px;
+        width: var(--preview-width, ${previewWidth}px);
         margin: 0 auto;
         padding: 0;
         border-radius: 28px;
@@ -114,20 +118,26 @@ export function renderPreviewHtml(config: PreviewHtmlConfig): string {
         overflow: hidden;
         border-radius: 22px;
         background: #ffffff;
-        width: ${PREVIEW_WIDTH}px;
-        height: ${PREVIEW_HEIGHT}px;
+        width: var(--preview-width, ${previewWidth}px);
+        height: var(--preview-height, ${previewHeight}px);
       }
 
       canvas {
         display: block;
-        width: ${PREVIEW_WIDTH}px;
-        height: ${PREVIEW_HEIGHT}px;
+        width: var(--preview-width, ${previewWidth}px);
+        height: var(--preview-height, ${previewHeight}px);
         outline: none;
         background: #ffffff;
       }
 
       .sidebar {
         padding: 24px;
+        height: 448px;
+        min-height: 0;
+        overflow: auto;
+        position: sticky;
+        top: 24px;
+        align-self: start;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
@@ -241,6 +251,12 @@ export function renderPreviewHtml(config: PreviewHtmlConfig): string {
           grid-template-columns: 1fr;
         }
 
+        .sidebar {
+          height: auto;
+          min-height: 0;
+          position: static;
+        }
+
         .preview-shell,
         .canvas-frame,
         canvas {
@@ -272,6 +288,10 @@ export function renderPreviewHtml(config: PreviewHtmlConfig): string {
         </div>
 
         <aside class="card sidebar">
+          <div class="target-switcher" aria-label="Preview target">
+            <button type="button" class="target-button" data-target="blank">Blank</button>
+            <button type="button" class="target-button" data-target="current">Current</button>
+          </div>
           <div class="status" id="preview-status">Preparing preview...</div>
           <div class="controls-panel" aria-label="Preview controls">
             <div class="controls-grid">
@@ -297,13 +317,30 @@ export function renderPreviewHtml(config: PreviewHtmlConfig): string {
       const statusNode = document.getElementById("preview-status");
       const canvasHost = document.getElementById("canvas-host");
       const controlButtons = Array.from(document.querySelectorAll(".control-button"));
+      const targetButtons = Array.from(document.querySelectorAll(".target-button"));
 
       let currentCanvas = document.getElementById("preview-canvas");
       let currentView = null;
       let inkModulePromise;
       let controlsBound = false;
       let socket;
+      let activeTarget = new URLSearchParams(window.location.search).get("target") === "current" ? "current" : "blank";
       const inkRuntimeLine = "Ink runtime: " + (previewConfig.inkRuntimeVersion || "Unknown");
+
+      function targetMetrics() {
+        return activeTarget === "current"
+          ? { width: ${CURRENT_PREVIEW_WIDTH}, height: ${CURRENT_PREVIEW_HEIGHT} }
+          : { width: ${PREVIEW_WIDTH}, height: ${PREVIEW_HEIGHT} };
+      }
+
+      function applyTargetStyles() {
+        const metrics = targetMetrics();
+        document.documentElement.style.setProperty("--preview-width", metrics.width + "px");
+        document.documentElement.style.setProperty("--preview-height", metrics.height + "px");
+        for (const button of targetButtons) {
+          button.dataset.active = button.dataset.target === activeTarget ? "true" : "false";
+        }
+      }
 
       function setStatus(message, tone = "info") {
         statusNode.dataset.tone = tone;
@@ -408,6 +445,22 @@ export function renderPreviewHtml(config: PreviewHtmlConfig): string {
         }
       }
 
+      function bindTargetButtons() {
+        for (const button of targetButtons) {
+          button.addEventListener("click", async () => {
+            const nextTarget = button.dataset.target;
+            if ((nextTarget !== "blank" && nextTarget !== "current") || nextTarget === activeTarget) return;
+            activeTarget = nextTarget;
+            const url = new URL(window.location.href);
+            url.searchParams.set("target", activeTarget);
+            window.history.replaceState({}, "", url);
+            applyTargetStyles();
+            const state = previewConfig.mode === "dev" ? await fetchPreviewState() : previewConfig.initialState;
+            await mountState(state, "Switching preview target...");
+          });
+        }
+      }
+
       function ensureInkModule() {
         if (!inkModulePromise) {
           inkModulePromise = import("@yodaos-pkg/ink");
@@ -457,9 +510,10 @@ export function renderPreviewHtml(config: PreviewHtmlConfig): string {
         await teardownView();
 
         const { createInkView } = await ensureInkModule();
+        const metrics = targetMetrics();
         const view = await createInkView({
-          width: ${PREVIEW_WIDTH},
-          height: ${PREVIEW_HEIGHT},
+          width: metrics.width,
+          height: metrics.height,
           layoutMode: "bounded",
           scaleFactor: window.devicePixelRatio || 1,
           appFps: 30,
@@ -519,6 +573,8 @@ export function renderPreviewHtml(config: PreviewHtmlConfig): string {
 
       async function boot() {
         bindControlButtons();
+        bindTargetButtons();
+        applyTargetStyles();
 
         if (previewConfig.mode === "dev") {
           setStatus("Loading preview state from dev server...");

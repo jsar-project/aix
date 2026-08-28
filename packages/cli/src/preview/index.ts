@@ -15,6 +15,7 @@ import {
   openInBrowser,
   writeHtmlOutput,
 } from "./utils";
+import type { PreviewTarget } from "./types";
 
 export async function cmdPreview(args: string[]) {
   const { values, positionals } = parseArgs({
@@ -24,12 +25,17 @@ export async function cmdPreview(args: string[]) {
       "html-out": { type: "string" },
       dev: { type: "boolean", default: false },
       launch: { type: "boolean", default: false },
+      "launch-target": { type: "string", default: "blank" },
     },
   });
 
   if (positionals.length !== 1) {
     throw new Error("preview requires an input file or directory");
   }
+  if (values["launch-target"] !== "blank" && values["launch-target"] !== "current") {
+    throw new Error('--launch-target must be either "blank" or "current"');
+  }
+  const launchTarget = values["launch-target"] as PreviewTarget;
 
   if (values.dev && values["html-out"]) {
     throw new Error("--html-out cannot be used with --dev");
@@ -53,7 +59,7 @@ export async function cmdPreview(args: string[]) {
     process.stdout.write(`Preview dev server running at ${preview.url}\n`);
     process.stdout.write("Press Ctrl+C to stop preview.\n");
     if (values.launch) {
-      openInBrowser(preview.url);
+      openInBrowser(`${preview.url}?target=${launchTarget}`);
     }
     return;
   }
@@ -82,7 +88,7 @@ export async function cmdPreview(args: string[]) {
   process.stdout.write(`Preview server running at ${preview.url}\n`);
   process.stdout.write("Press Ctrl+C to stop preview.\n");
   if (values.launch) {
-    openInBrowser(preview.url);
+    openInBrowser(`${preview.url}?target=${launchTarget}`);
   }
 }
 

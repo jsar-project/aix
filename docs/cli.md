@@ -155,7 +155,14 @@ By default, the command starts a local HTTP server, serves the preview page from
 memory, and prints the preview URL without opening the browser automatically.
 The default preview mode embeds a snapshot of the current bundle contents into a
 single HTML document while loading the Ink SDK from the network at runtime. The
-preview viewport is fixed at `480x352`.
+preview uses the `blank` target by default with a `480x352` viewport. Use
+`--launch-target current` to open the launch page with the current target at a fixed `448x150` viewport:
+
+```bash
+aix preview ./bundle.aix --launch --launch-target current
+```
+
+The preview page also provides Blank/Current controls for switching targets.
 
 When the input is a packaged `.aix` artifact, package metadata is read from
 `META-INF/aix/manifest.json`. Directory preview uses the source tree directly

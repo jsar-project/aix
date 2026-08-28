@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { DEV_STATE_PATH, DEV_WS_PATH } from "./constants";
 import { renderPreviewHtml } from "./html";
 import { buildPreviewState } from "./state";
-import type { DevPreviewMessage, PreviewServer } from "./types";
+import type { DevPreviewMessage, PreviewServer, PreviewTarget } from "./types";
 import { formatError } from "./utils";
 import { startSourceWatcher } from "./watcher";
 

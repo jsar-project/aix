@@ -87,7 +87,9 @@ directly from memory, and prints the preview URL without opening the browser
 automatically. In the default preview mode, the page embeds a snapshot of the
 current bundle contents into a single HTML document, while still loading the
 Ink SDK from the network at runtime. The current preview viewport is fixed at
-`448x352`.
+`480x352`. Use `--launch --launch-target current` to open with a fixed
+`448x150` current target. The preview page also provides Blank/Current controls
+for switching targets.
 
 When the input is a packaged `.aix` artifact, package metadata is read from
 `META-INF/aix/manifest.json`. Directory preview reads the source tree directly.

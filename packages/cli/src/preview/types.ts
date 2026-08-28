@@ -4,6 +4,7 @@ export type PreviewEmbeddedFile = {
 };
 
 export type PreviewSourceKind = "aix-file" | "directory";
+export type PreviewTarget = "blank" | "current";
 
 export type PreviewState = {
   appId: string;

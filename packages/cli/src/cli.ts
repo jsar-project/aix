@@ -54,10 +54,12 @@ async function main() {
     .option("--html-out <file>", "Write the preview HTML to a file")
     .option("--dev", "Start the preview server in development mode")
     .option("--launch", "Open the preview URL in the default browser")
+    .option("--launch-target <target>", "Target for --launch: blank or current", "blank")
     .action(async (input: string, options: {
       htmlOut?: string;
       dev?: boolean;
       launch?: boolean;
+      launchTarget: string;
     }) => {
       await cmdPreview(buildPreviewArgs(input, options));
     });
@@ -131,7 +133,7 @@ function buildOptimizeArgs(
 
 function buildPreviewArgs(
   input: string,
-  options: { htmlOut?: string; dev?: boolean; launch?: boolean },
+  options: { htmlOut?: string; dev?: boolean; launch?: boolean; launchTarget: string },
 ): string[] {
   const args = [input];
   if (options.htmlOut) {
@@ -143,6 +145,7 @@ function buildPreviewArgs(
   if (options.launch) {
     args.push("--launch");
   }
+  args.push("--launch-target", options.launchTarget);
   return args;
 }
 
