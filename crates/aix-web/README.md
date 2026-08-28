@@ -92,6 +92,29 @@ const optimized = await AIX.optimize(packed.data, { level: 3 });
 
 Both methods return the generated `Uint8Array` and a structured per-file report.
 
+Use `packFromSource` when the input represents an unpacked application tree.
+It applies the same path normalization and nested `.aixignore` behavior as the
+native and npm CLIs, and can report structured progress:
+
+```ts
+const packed = await AIX.packFromSource(
+  [
+    { path: ".aixignore", data: new TextEncoder().encode("*.tmp\n") },
+    { path: "app.json", data: new TextEncoder().encode('{"pages":[]}') },
+    { path: "scratch.tmp", data: new Uint8Array() },
+  ],
+  {
+    optimize: { level: 2 },
+    onProgress(event) {
+      console.log(event.type);
+    },
+  },
+);
+```
+
+Use `pack` only when the caller has already normalized and filtered its input
+files and wants to invoke the low-level packer directly.
+
 ## API Reference
 
 ### `AIX` Class
