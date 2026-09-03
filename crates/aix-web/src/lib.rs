@@ -278,6 +278,14 @@ impl AixReaderWasm {
         to_value(&self.inner.get_pages())
     }
 
+    pub fn get_widgets(&self) -> Result<JsValue, JsValue> {
+        let widgets = self
+            .inner
+            .get_widgets()
+            .map_err(|error| JsValue::from_str(&error.to_string()))?;
+        to_value(&widgets)
+    }
+
     pub fn get_tools(&self) -> Result<JsValue, JsValue> {
         to_value(&self.inner.get_tools())
     }

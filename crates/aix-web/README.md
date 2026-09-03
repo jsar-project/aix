@@ -170,6 +170,13 @@ const pages = aix.getPages();
 */
 ```
 
+#### `getWidgets(): WidgetInfo[]`
+Returns widget declarations after verifying that every path resolves to an `.ink` entry in the package. Throws when a declared entry is missing.
+```typescript
+const widgets = aix.getWidgets();
+// [{ path: "widgets/clock/index", family: "1x1" }]
+```
+
 #### `getTools(): Tool[]`
 Generates a list of OpenAI-compatible tool definitions based on the pages and their schemas.
 ```typescript
@@ -203,6 +210,14 @@ interface PageInfo {
   name: string;
   title?: string;
   data_schema: any;
+}
+```
+
+### `WidgetInfo`
+```typescript
+interface WidgetInfo {
+  path: string;
+  family: string;
 }
 ```
 

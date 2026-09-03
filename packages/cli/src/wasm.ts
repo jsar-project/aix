@@ -39,6 +39,7 @@ export type AixReaderInstance = {
   get_title: () => string | undefined;
   supports_engine: (version: string) => boolean;
   get_pages: () => unknown[];
+  get_widgets: () => unknown[];
   get_tools: () => unknown[];
 };
 
