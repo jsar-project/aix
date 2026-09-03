@@ -64,6 +64,15 @@ pub struct PageInfo {
     pub size: PageConstraint,
 }
 
+/// Describes a widget entry declared by `app.json`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct WidgetInfo {
+    /// Logical widget path without an extension, such as `widgets/clock/index`.
+    pub path: String,
+    /// Widget family declared by the application, such as `1x1` or `1x2`.
+    pub family: String,
+}
+
 /// Represents an OpenAI-style tool derived from a page definition.
 ///
 /// Tools are produced by [`AixReader::get_tools`] and map page metadata into a
@@ -105,6 +114,8 @@ pub struct FunctionDefinition {
 #[derive(Deserialize)]
 struct AppConfig {
     pub pages: Vec<String>,
+    #[serde(default)]
+    pub widgets: Vec<WidgetInfo>,
     pub window: Option<WindowConfig>,
 }
 
@@ -687,6 +698,21 @@ impl AixReader {
         pages
     }
 
+    /// Returns the widgets declared in `app.json` after validating their entry files.
+    ///
+    /// Every widget path must resolve to an `.ink` single-file entry in the package.
+    /// An absent `widgets` property is treated as an empty list.
+    pub fn get_widgets(&self) -> Result<Vec<WidgetInfo>> {
+        let config = self.read_app_config()?;
+        for widget in &config.widgets {
+            let entry_path = format!("{}.ink", widget.path);
+            if !self.index.contains_key(entry_path.as_str()) {
+                return Err(anyhow!("Widget entry not found: {}", entry_path));
+            }
+        }
+        Ok(config.widgets)
+    }
+
     /// Derives agent-facing tools from the package page list.
     ///
     /// The first page without parameters is exposed as [`ToolTarget::Blank`],
@@ -840,6 +866,33 @@ mod tests {
         buf
     }
 
+    fn create_widget_test_aix(include_entry: bool) -> Vec<u8> {
+        let mut buf = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(Cursor::new(&mut buf));
+            let options = FileOptions::default();
+
+            zip.start_file("app.json", options).unwrap();
+            zip.write_all(
+                br#"{
+                    "pages": [],
+                    "widgets": [
+                        { "path": "widgets/clock/index", "family": "1x1" }
+                    ]
+                }"#,
+            )
+            .unwrap();
+
+            if include_entry {
+                zip.start_file("widgets/clock/index.ink", options).unwrap();
+                zip.write_all(b"<widget></widget>").unwrap();
+            }
+
+            zip.finish().unwrap();
+        }
+        buf
+    }
+
     fn create_engine_test_aix(app_json: &[u8], manifest_engine: Option<&str>) -> Vec<u8> {
         let mut buf = Vec::new();
         {
@@ -887,6 +940,36 @@ mod tests {
 
         let reader = AixReader::new(data).unwrap();
         assert_eq!(reader.read_file("app.json").unwrap(), br#"{"pages":[]}"#);
+    }
+
+    #[test]
+    fn returns_declared_widgets_when_entries_exist() {
+        let reader = AixReader::new(create_widget_test_aix(true)).unwrap();
+
+        assert_eq!(
+            reader.get_widgets().unwrap(),
+            vec![WidgetInfo {
+                path: "widgets/clock/index".to_string(),
+                family: "1x1".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn rejects_widget_with_missing_entry() {
+        let reader = AixReader::new(create_widget_test_aix(false)).unwrap();
+
+        assert_eq!(
+            reader.get_widgets().unwrap_err().to_string(),
+            "Widget entry not found: widgets/clock/index.ink"
+        );
+    }
+
+    #[test]
+    fn returns_empty_widgets_for_legacy_app_config() {
+        let reader = AixReader::new(create_engine_test_aix(br#"{"pages":[]}"#, None)).unwrap();
+
+        assert!(reader.get_widgets().unwrap().is_empty());
     }
 
     #[test]

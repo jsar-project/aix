@@ -105,6 +105,11 @@ export interface PageInfo {
   data_schema: any;
 }
 
+export interface WidgetInfo {
+  path: string;
+  family: string;
+}
+
 export interface Tool {
   type: string;
   function: {
@@ -233,6 +238,13 @@ export class AIX {
    */
   getPages(): PageInfo[] {
     return (this.reader as any).get_pages() as PageInfo[];
+  }
+
+  /**
+   * Get all widgets from app.json after validating that each .ink entry exists.
+   */
+  getWidgets(): WidgetInfo[] {
+    return (this.reader as any).get_widgets() as WidgetInfo[];
   }
 
   /**
